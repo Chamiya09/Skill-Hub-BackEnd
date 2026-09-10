@@ -158,7 +158,7 @@ app.MapControllers();
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
 // ==========================================
-// 8. AUTOMATIC DATABASE SCHEMA INITIALIZATION
+// 8. AUTOMATIC DATABASE SCHEMA SYNCHRONIZATION
 // ==========================================
 using (var scope = app.Services.CreateScope())
 {
@@ -166,13 +166,85 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        logger.LogInformation("Verifying and ensuring database schema exists...");
-        dbContext.Database.EnsureCreated();
-        logger.LogInformation("Database schema initialized successfully.");
+        logger.LogInformation("Synchronizing database schema and tables in public schema...");
+
+        var ddlStatements = new[]
+        {
+            // 1. Companies Table
+            @"CREATE TABLE IF NOT EXISTS public.""Companies"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CompanyName"" character varying(200) NOT NULL,
+                ""ContactEmail"" character varying(255) NOT NULL,
+                ""PasswordHash"" text NOT NULL DEFAULT '',
+                ""Industry"" character varying(100),
+                ""Website"" character varying(255),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+
+            // 1b. Ensure PasswordHash column exists on Companies
+            @"DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'PasswordHash'
+                ) THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""PasswordHash"" text NOT NULL DEFAULT '';
+                END IF;
+            END $$;",
+
+            // 1c. Unique Index on ContactEmail
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Companies_ContactEmail"" ON public.""Companies"" (""ContactEmail"");",
+
+            // 2. Users Table
+            @"CREATE TABLE IF NOT EXISTS public.""Users"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CompanyId"" uuid NOT NULL REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""FullName"" character varying(150) NOT NULL,
+                ""Email"" character varying(255) NOT NULL,
+                ""PasswordHash"" text NOT NULL,
+                ""Role"" character varying(50) NOT NULL,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+
+            // 2b. Indexes on Users
+            @"CREATE INDEX IF NOT EXISTS ""IX_Users_CompanyId"" ON public.""Users"" (""CompanyId"");",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Users_Email"" ON public.""Users"" (""Email"");",
+
+            // 3. JobVacancies Table
+            @"CREATE TABLE IF NOT EXISTS public.""JobVacancies"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CompanyId"" uuid NOT NULL REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""Title"" character varying(200) NOT NULL,
+                ""Department"" character varying(100) NOT NULL,
+                ""Location"" character varying(150) NOT NULL,
+                ""EmploymentType"" character varying(50) NOT NULL,
+                ""ExperienceLevel"" character varying(50) NOT NULL,
+                ""SalaryRange"" character varying(100),
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Active',
+                ""Description"" text NOT NULL,
+                ""WhatWeOffer"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+
+            // 3b. Indexes on JobVacancies
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CompanyId"" ON public.""JobVacancies"" (""CompanyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Status"" ON public.""JobVacancies"" (""Status"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");"
+        };
+
+        foreach (var ddl in ddlStatements)
+        {
+            dbContext.Database.ExecuteSqlRaw(ddl);
+        }
+
+        logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies verified in 'public').");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "An error occurred while ensuring the database schema exists: {Message}", ex.Message);
+        logger.LogError(ex, "An error occurred while synchronizing the database schema: {Message}", ex.Message);
     }
 }
 

@@ -31,5 +31,8 @@ namespace Skill_Hub_BackEnd.Models
 
         // Navigation property for company users if provisioned in the future
         public ICollection<User> Users { get; set; } = new List<User>();
+
+        // Navigation property for Job Vacancies posted by this Company
+        public ICollection<JobVacancy> JobVacancies { get; set; } = new List<JobVacancy>();
     }
 }
