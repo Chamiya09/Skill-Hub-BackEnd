@@ -23,14 +23,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var normalizedEmail = dto.CompanyEmail.Trim().ToLower();
             var companyName = dto.CompanyName.Trim();
 
-            // Check if user or company email already exists
-            var existingUser = await _dbContext.Users
-                .AnyAsync(u => u.Email.ToLower() == normalizedEmail);
-
+            // Check if company email already exists in Company table
             var existingCompany = await _dbContext.Companies
                 .AnyAsync(c => c.ContactEmail.ToLower() == normalizedEmail);
 
-            if (existingUser || existingCompany)
+            if (existingCompany)
             {
                 throw new InvalidOperationException($"A company with the email '{dto.CompanyEmail}' is already registered.");
             }
@@ -38,38 +35,25 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             // Hash password securely with BCrypt
             var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
-            // Create Company Entity
+            // Create Company Entity (acts as the sole independent entity for employer login)
             var company = new Company
             {
                 Id = Guid.NewGuid(),
                 CompanyName = companyName,
                 ContactEmail = normalizedEmail,
+                PasswordHash = passwordHash,
                 Industry = dto.Industry?.Trim(),
                 Website = dto.Website?.Trim(),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
-            // Create Root Company Account User
-            var companyRootUser = new User
-            {
-                Id = Guid.NewGuid(),
-                CompanyId = company.Id,
-                FullName = companyName,
-                Email = normalizedEmail,
-                PasswordHash = passwordHash,
-                Role = "HR_Admin",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            // Atomically add and save both entities
+            // Atomically add only the Company entity (no User records created)
             _dbContext.Companies.Add(company);
-            _dbContext.Users.Add(companyRootUser);
             await _dbContext.SaveChangesAsync();
 
-            // Generate JWT Token for the company root account
-            var (token, expiresAt) = _tokenService.GenerateToken(companyRootUser, company.CompanyName);
+            // Generate JWT Token with CompanyId and Role 'Company'
+            var (token, expiresAt) = _tokenService.GenerateToken(company);
 
             return new AuthResponseDto
             {
@@ -78,13 +62,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ExpiresAt = expiresAt,
                 User = new UserResponseDto
                 {
-                    Id = companyRootUser.Id,
+                    Id = company.Id,
                     CompanyId = company.Id,
                     CompanyName = company.CompanyName,
-                    FullName = companyRootUser.FullName,
-                    Email = companyRootUser.Email,
-                    Role = companyRootUser.Role,
-                    CreatedAt = companyRootUser.CreatedAt
+                    FullName = company.CompanyName,
+                    Email = company.ContactEmail,
+                    Role = "Company",
+                    CreatedAt = company.CreatedAt
                 }
             };
         }
@@ -93,17 +77,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             var normalizedEmail = dto.Email.Trim().ToLower();
 
-            var user = await _dbContext.Users
-                .Include(u => u.Company)
-                .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
+            // Query strictly against the Company table
+            var company = await _dbContext.Companies
+                .FirstOrDefaultAsync(c => c.ContactEmail.ToLower() == normalizedEmail);
 
-            if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+            if (company == null || !BCrypt.Net.BCrypt.Verify(dto.Password, company.PasswordHash))
             {
                 throw new UnauthorizedAccessException("Invalid company email or password credentials.");
             }
 
-            var companyName = user.Company?.CompanyName ?? "Skill Hub Enterprise";
-            var (token, expiresAt) = _tokenService.GenerateToken(user, companyName);
+            // Generate JWT Token with CompanyId and Role 'Company'
+            var (token, expiresAt) = _tokenService.GenerateToken(company);
 
             return new AuthResponseDto
             {
@@ -112,13 +96,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ExpiresAt = expiresAt,
                 User = new UserResponseDto
                 {
-                    Id = user.Id,
-                    CompanyId = user.CompanyId,
-                    CompanyName = companyName,
-                    FullName = user.FullName,
-                    Email = user.Email,
-                    Role = user.Role,
-                    CreatedAt = user.CreatedAt
+                    Id = company.Id,
+                    CompanyId = company.Id,
+                    CompanyName = company.CompanyName,
+                    FullName = company.CompanyName,
+                    Email = company.ContactEmail,
+                    Role = "Company",
+                    CreatedAt = company.CreatedAt
                 }
             };
         }

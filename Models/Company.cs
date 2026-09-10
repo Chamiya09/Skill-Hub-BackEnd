@@ -16,6 +16,9 @@ namespace Skill_Hub_BackEnd.Models
         [MaxLength(255)]
         public string ContactEmail { get; set; } = string.Empty;
 
+        [Required]
+        public string PasswordHash { get; set; } = string.Empty;
+
         [MaxLength(100)]
         public string? Industry { get; set; }
 
@@ -26,7 +29,7 @@ namespace Skill_Hub_BackEnd.Models
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation property for company users
+        // Navigation property for company users if provisioned in the future
         public ICollection<User> Users { get; set; } = new List<User>();
     }
 }

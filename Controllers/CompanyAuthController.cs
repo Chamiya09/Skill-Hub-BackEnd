@@ -20,7 +20,7 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Registers a new Enterprise Company and provisions the primary HR Admin user account.
+        /// Registers a new Enterprise Company entity (sole root account for employer login).
         /// Endpoint: POST /api/company/register
         /// </summary>
         [HttpPost("register")]
@@ -38,7 +38,7 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 var response = await _authService.RegisterCompanyAsync(dto);
-                _logger.LogInformation("Successfully registered company '{CompanyName}' with email '{CompanyEmail}'", dto.CompanyName, dto.CompanyEmail);
+                _logger.LogInformation("Successfully registered enterprise company '{CompanyName}' with email '{CompanyEmail}'", dto.CompanyName, dto.CompanyEmail);
                 return StatusCode(StatusCodes.Status201Created, response);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("already exists") || ex.Message.Contains("already registered"))
@@ -55,7 +55,7 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Authenticates an employer/company user with email and password, returning an enterprise JWT token.
+        /// Authenticates an employer company directly against the Company table, returning an enterprise JWT token.
         /// Endpoint: POST /api/company/login
         /// </summary>
         [HttpPost("login")]
@@ -73,17 +73,17 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 var response = await _authService.LoginAsync(dto);
-                _logger.LogInformation("Company user '{Email}' successfully authenticated.", dto.Email);
+                _logger.LogInformation("Company '{Email}' successfully authenticated.", dto.Email);
                 return Ok(response);
             }
             catch (UnauthorizedAccessException ex)
             {
-                _logger.LogWarning("Authentication failed for company user '{Email}': {Message}", dto.Email, ex.Message);
+                _logger.LogWarning("Authentication failed for company '{Email}': {Message}", dto.Email, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error occurred during login for company user '{Email}': {Message}", dto.Email, ex.Message);
+                _logger.LogError(ex, "Unexpected error occurred during login for company '{Email}': {Message}", dto.Email, ex.Message);
                 var detail = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
                 return StatusCode(StatusCodes.Status500InternalServerError, new { message = detail });
             }

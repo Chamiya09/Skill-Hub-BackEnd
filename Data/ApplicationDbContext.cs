@@ -28,10 +28,10 @@ namespace Skill_Hub_BackEnd.Data
                       .OnDelete(DeleteBehavior.Cascade);
             });
 
-            // Company Entity Configurations
+            // Company Entity Configurations (Unique ContactEmail)
             modelBuilder.Entity<Company>(entity =>
             {
-                entity.HasIndex(c => c.ContactEmail);
+                entity.HasIndex(c => c.ContactEmail).IsUnique();
             });
         }
     }
