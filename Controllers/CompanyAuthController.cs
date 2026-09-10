@@ -6,14 +6,14 @@ using Skill_Hub_BackEnd.Services.Interfaces;
 namespace Skill_Hub_BackEnd.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/company")]
     [Produces("application/json")]
-    public class AuthController : ControllerBase
+    public class CompanyAuthController : ControllerBase
     {
         private readonly IAuthService _authService;
-        private readonly ILogger<AuthController> _logger;
+        private readonly ILogger<CompanyAuthController> _logger;
 
-        public AuthController(IAuthService authService, ILogger<AuthController> logger)
+        public CompanyAuthController(IAuthService authService, ILogger<CompanyAuthController> logger)
         {
             _authService = authService;
             _logger = logger;
@@ -21,6 +21,7 @@ namespace Skill_Hub_BackEnd.Controllers
 
         /// <summary>
         /// Registers a new Enterprise Company and provisions the primary HR Admin user account.
+        /// Endpoint: POST /api/company/register
         /// </summary>
         [HttpPost("register")]
         [AllowAnonymous]
@@ -37,23 +38,25 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 var response = await _authService.RegisterCompanyAsync(dto);
-                _logger.LogInformation("Successfully registered company '{CompanyName}' with admin '{AdminEmail}'", dto.CompanyName, dto.AdminEmail);
+                _logger.LogInformation("Successfully registered company '{CompanyName}' with email '{CompanyEmail}'", dto.CompanyName, dto.CompanyEmail);
                 return StatusCode(StatusCodes.Status201Created, response);
             }
-            catch (InvalidOperationException ex)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already exists") || ex.Message.Contains("already registered"))
             {
                 _logger.LogWarning("Registration conflict: {Message}", ex.Message);
                 return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error occurred during company registration.");
-                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An internal server error occurred while processing registration." });
+                _logger.LogError(ex, "Unexpected error occurred during company registration: {Message}", ex.Message);
+                var detail = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = detail });
             }
         }
 
         /// <summary>
-        /// Authenticates a corporate user with email and password, returning an enterprise JWT token.
+        /// Authenticates an employer/company user with email and password, returning an enterprise JWT token.
+        /// Endpoint: POST /api/company/login
         /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
@@ -70,18 +73,19 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 var response = await _authService.LoginAsync(dto);
-                _logger.LogInformation("User '{Email}' successfully authenticated.", dto.Email);
+                _logger.LogInformation("Company user '{Email}' successfully authenticated.", dto.Email);
                 return Ok(response);
             }
             catch (UnauthorizedAccessException ex)
             {
-                _logger.LogWarning("Authentication failed for user '{Email}': {Message}", dto.Email, ex.Message);
+                _logger.LogWarning("Authentication failed for company user '{Email}': {Message}", dto.Email, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error occurred during login for user '{Email}'.", dto.Email);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An internal server error occurred while processing login." });
+                _logger.LogError(ex, "Unexpected error occurred during login for company user '{Email}': {Message}", dto.Email, ex.Message);
+                var detail = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = detail });
             }
         }
     }

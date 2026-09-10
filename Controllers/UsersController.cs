@@ -6,7 +6,8 @@ using Skill_Hub_BackEnd.Services.Interfaces;
 namespace Skill_Hub_BackEnd.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/users")]
+    [Route("api/v1/users")]
     [Authorize]
     [Produces("application/json")]
     public class UsersController : ControllerBase

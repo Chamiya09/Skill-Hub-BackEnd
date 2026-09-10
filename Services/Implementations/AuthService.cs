@@ -20,37 +20,42 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         public async Task<AuthResponseDto> RegisterCompanyAsync(RegisterCompanyDto dto)
         {
-            // Check if admin email already exists in system
-            var normalizedEmail = dto.AdminEmail.Trim().ToLower();
+            var normalizedEmail = dto.CompanyEmail.Trim().ToLower();
+            var companyName = dto.CompanyName.Trim();
+
+            // Check if user or company email already exists
             var existingUser = await _dbContext.Users
                 .AnyAsync(u => u.Email.ToLower() == normalizedEmail);
 
-            if (existingUser)
+            var existingCompany = await _dbContext.Companies
+                .AnyAsync(c => c.ContactEmail.ToLower() == normalizedEmail);
+
+            if (existingUser || existingCompany)
             {
-                throw new InvalidOperationException($"A user with the email '{dto.AdminEmail}' already exists.");
+                throw new InvalidOperationException($"A company with the email '{dto.CompanyEmail}' is already registered.");
             }
+
+            // Hash password securely with BCrypt
+            var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
             // Create Company Entity
             var company = new Company
             {
                 Id = Guid.NewGuid(),
-                CompanyName = dto.CompanyName.Trim(),
-                ContactEmail = dto.ContactEmail.Trim().ToLower(),
+                CompanyName = companyName,
+                ContactEmail = normalizedEmail,
                 Industry = dto.Industry?.Trim(),
                 Website = dto.Website?.Trim(),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
-            // Hash password securely with BCrypt
-            var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-
-            // Create First User as 'HR_Admin'
-            var adminUser = new User
+            // Create Root Company Account User
+            var companyRootUser = new User
             {
                 Id = Guid.NewGuid(),
                 CompanyId = company.Id,
-                FullName = dto.AdminFullName.Trim(),
+                FullName = companyName,
                 Email = normalizedEmail,
                 PasswordHash = passwordHash,
                 Role = "HR_Admin",
@@ -58,23 +63,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 UpdatedAt = DateTime.UtcNow
             };
 
-            // Execute in an atomic transaction
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync();
-            try
-            {
-                _dbContext.Companies.Add(company);
-                _dbContext.Users.Add(adminUser);
-                await _dbContext.SaveChangesAsync();
-                await transaction.CommitAsync();
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            // Atomically add and save both entities
+            _dbContext.Companies.Add(company);
+            _dbContext.Users.Add(companyRootUser);
+            await _dbContext.SaveChangesAsync();
 
-            // Generate JWT Token
-            var (token, expiresAt) = _tokenService.GenerateToken(adminUser, company.CompanyName);
+            // Generate JWT Token for the company root account
+            var (token, expiresAt) = _tokenService.GenerateToken(companyRootUser, company.CompanyName);
 
             return new AuthResponseDto
             {
@@ -83,13 +78,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ExpiresAt = expiresAt,
                 User = new UserResponseDto
                 {
-                    Id = adminUser.Id,
+                    Id = companyRootUser.Id,
                     CompanyId = company.Id,
                     CompanyName = company.CompanyName,
-                    FullName = adminUser.FullName,
-                    Email = adminUser.Email,
-                    Role = adminUser.Role,
-                    CreatedAt = adminUser.CreatedAt
+                    FullName = companyRootUser.FullName,
+                    Email = companyRootUser.Email,
+                    Role = companyRootUser.Role,
+                    CreatedAt = companyRootUser.CreatedAt
                 }
             };
         }
@@ -104,7 +99,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
             {
-                throw new UnauthorizedAccessException("Invalid email or password credentials.");
+                throw new UnauthorizedAccessException("Invalid company email or password credentials.");
             }
 
             var companyName = user.Company?.CompanyName ?? "Skill Hub Enterprise";

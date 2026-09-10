@@ -7,13 +7,26 @@ using Skill_Hub_BackEnd.Data;
 using Skill_Hub_BackEnd.Services.Implementations;
 using Skill_Hub_BackEnd.Services.Interfaces;
 
+// ==========================================
+// 0. NETWORK CONFIGURATION (FORCE IPV4 FOR CLOUD DBs)
+// ==========================================
+// Prevents unroutable ISP IPv6 socket timeouts when resolving Neon AWS endpoints on Windows
+AppContext.SetSwitch("System.Net.DisableIPv6", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ==========================================
 // 1. DATABASE & EF CORE (POSTGRESQL / NEONDB)
 // ==========================================
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null);
+        npgsqlOptions.CommandTimeout(60);
+    }));
 
 // ==========================================
 // 2. DEPENDENCY INJECTION (APPLICATION SERVICES)
@@ -141,4 +154,27 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Redirect root URL directly to Swagger UI in development
+app.MapGet("/", () => Results.Redirect("/swagger"));
+
+// ==========================================
+// 8. AUTOMATIC DATABASE SCHEMA INITIALIZATION
+// ==========================================
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        logger.LogInformation("Verifying and ensuring database schema exists...");
+        dbContext.Database.EnsureCreated();
+        logger.LogInformation("Database schema initialized successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "An error occurred while ensuring the database schema exists: {Message}", ex.Message);
+    }
+}
+
 app.Run();
+
