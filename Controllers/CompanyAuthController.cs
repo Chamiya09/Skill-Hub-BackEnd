@@ -1,6 +1,10 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Skill_Hub_BackEnd.Data;
 using Skill_Hub_BackEnd.DTOs.Auth;
+using Skill_Hub_BackEnd.DTOs.Users;
 using Skill_Hub_BackEnd.Services.Interfaces;
 
 namespace Skill_Hub_BackEnd.Controllers
@@ -11,11 +15,16 @@ namespace Skill_Hub_BackEnd.Controllers
     public class CompanyAuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        private readonly ApplicationDbContext _dbContext;
         private readonly ILogger<CompanyAuthController> _logger;
 
-        public CompanyAuthController(IAuthService authService, ILogger<CompanyAuthController> logger)
+        public CompanyAuthController(
+            IAuthService authService,
+            ApplicationDbContext dbContext,
+            ILogger<CompanyAuthController> logger)
         {
             _authService = authService;
+            _dbContext = dbContext;
             _logger = logger;
         }
 
@@ -87,6 +96,46 @@ namespace Skill_Hub_BackEnd.Controllers
                 var detail = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
                 return StatusCode(StatusCodes.Status500InternalServerError, new { message = detail });
             }
+        }
+
+        /// <summary>
+        /// Retrieves the profile and identity of the currently authenticated Company.
+        /// Endpoint: GET /api/company/me
+        /// </summary>
+        [HttpGet("me")]
+        [Authorize]
+        [ProducesResponseType(typeof(UserResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetCurrentCompany()
+        {
+            var companyIdClaim = User.FindFirst("companyId")?.Value 
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+
+            if (!Guid.TryParse(companyIdClaim, out var companyId))
+            {
+                return Unauthorized(new { message = "Invalid or missing company identifier in token." });
+            }
+
+            var company = await _dbContext.Companies.FindAsync(companyId);
+            if (company == null)
+            {
+                return NotFound(new { message = "Company profile not found in database." });
+            }
+
+            var response = new UserResponseDto
+            {
+                Id = company.Id,
+                CompanyId = company.Id,
+                CompanyName = company.CompanyName,
+                FullName = company.CompanyName,
+                Email = company.ContactEmail,
+                Role = "Company",
+                CreatedAt = company.CreatedAt
+            };
+
+            return Ok(response);
         }
     }
 }
