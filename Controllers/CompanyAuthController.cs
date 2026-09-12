@@ -181,6 +181,11 @@ namespace Skill_Hub_BackEnd.Controllers
                 company.Industry = dto.Industry.Trim();
             }
 
+            if (!string.IsNullOrWhiteSpace(dto.ContactEmail))
+            {
+                company.ContactEmail = dto.ContactEmail.Trim();
+            }
+
             company.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
 
@@ -198,6 +203,53 @@ namespace Skill_Hub_BackEnd.Controllers
             };
 
             return Ok(response);
+        }
+
+        /// <summary>
+        /// Updates the password for the authenticated Company account.
+        /// Endpoint: PUT /api/company/change-password
+        /// </summary>
+        [HttpPut("change-password")]
+        [Authorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var companyIdClaim = User.FindFirst("companyId")?.Value 
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+
+            if (!Guid.TryParse(companyIdClaim, out var companyId))
+            {
+                return Unauthorized(new { message = "Invalid or missing company identifier in token." });
+            }
+
+            var company = await _dbContext.Companies.FindAsync(companyId);
+            if (company == null)
+            {
+                return NotFound(new { message = "Company account not found in database." });
+            }
+
+            // Verify current password against stored BCrypt hash
+            if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, company.PasswordHash))
+            {
+                return BadRequest(new { message = "The current password you provided is incorrect." });
+            }
+
+            // Hash new password and save
+            company.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            company.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Password successfully changed for company account {CompanyId} ('{CompanyName}')", company.Id, company.CompanyName);
+            return Ok(new { message = "Password updated successfully." });
         }
     }
 }

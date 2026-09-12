@@ -12,5 +12,9 @@ namespace Skill_Hub_BackEnd.DTOs.Auth
 
         [MaxLength(255)]
         public string? Website { get; set; }
+
+        [EmailAddress]
+        [MaxLength(255)]
+        public string? ContactEmail { get; set; }
     }
 }
