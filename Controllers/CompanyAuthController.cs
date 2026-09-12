@@ -132,6 +132,68 @@ namespace Skill_Hub_BackEnd.Controllers
                 FullName = company.CompanyName,
                 Email = company.ContactEmail,
                 Role = "Company",
+                Industry = company.Industry,
+                Website = company.Website,
+                CreatedAt = company.CreatedAt
+            };
+
+            return Ok(response);
+        }
+
+        /// <summary>
+        /// Updates profile information for the authenticated Company.
+        /// Endpoint: PUT /api/company/profile
+        /// </summary>
+        [HttpPut("profile")]
+        [Authorize]
+        [ProducesResponseType(typeof(UserResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateCompanyProfileDto dto)
+        {
+            var companyIdClaim = User.FindFirst("companyId")?.Value 
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+
+            if (!Guid.TryParse(companyIdClaim, out var companyId))
+            {
+                return Unauthorized(new { message = "Invalid or missing company identifier in token." });
+            }
+
+            var company = await _dbContext.Companies.FindAsync(companyId);
+            if (company == null)
+            {
+                return NotFound(new { message = "Company profile not found in database." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.CompanyName))
+            {
+                company.CompanyName = dto.CompanyName.Trim();
+            }
+
+            if (dto.Website != null)
+            {
+                company.Website = dto.Website.Trim();
+            }
+
+            if (dto.Industry != null)
+            {
+                company.Industry = dto.Industry.Trim();
+            }
+
+            company.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            var response = new UserResponseDto
+            {
+                Id = company.Id,
+                CompanyId = company.Id,
+                CompanyName = company.CompanyName,
+                FullName = company.CompanyName,
+                Email = company.ContactEmail,
+                Role = "Company",
+                Industry = company.Industry,
+                Website = company.Website,
                 CreatedAt = company.CreatedAt
             };
 
