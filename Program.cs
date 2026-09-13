@@ -307,7 +307,61 @@ using (var scope = app.Services.CreateScope())
             // 3b. Indexes on JobVacancies
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CompanyId"" ON public.""JobVacancies"" (""CompanyId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Status"" ON public.""JobVacancies"" (""Status"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");",
+
+            // 4. CandidateExperiences Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateExperiences"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Title"" character varying(200) NOT NULL,
+                ""Company"" character varying(200) NOT NULL,
+                ""Location"" character varying(150),
+                ""StartDate"" character varying(50) NOT NULL,
+                ""EndDate"" character varying(50),
+                ""IsCurrent"" boolean NOT NULL DEFAULT false,
+                ""Description"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateExperiences_UserId"" ON public.""CandidateExperiences"" (""UserId"");",
+
+            // 5. CandidateEducations Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateEducations"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Degree"" character varying(200) NOT NULL,
+                ""Institution"" character varying(200) NOT NULL,
+                ""FieldOfStudy"" character varying(150),
+                ""StartYear"" character varying(50) NOT NULL,
+                ""EndYear"" character varying(50),
+                ""Description"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateEducations_UserId"" ON public.""CandidateEducations"" (""UserId"");",
+
+            // 6. CandidateProjects Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateProjects"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""ProjectName"" character varying(200) NOT NULL,
+                ""Role"" character varying(150),
+                ""Description"" text,
+                ""Link"" character varying(500),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateProjects_UserId"" ON public.""CandidateProjects"" (""UserId"");",
+
+            // 7. CandidateSkills Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateSkills"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""SkillName"" character varying(100) NOT NULL,
+                ""Category"" character varying(100),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateSkills_UserId"" ON public.""CandidateSkills"" (""UserId"");"
         };
 
         foreach (var ddl in ddlStatements)
@@ -315,7 +369,7 @@ using (var scope = app.Services.CreateScope())
             dbContext.Database.ExecuteSqlRaw(ddl);
         }
 
-        logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies verified in 'public').");
+        logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies, Candidate CV Tables verified in 'public').");
     }
     catch (Exception ex)
     {
