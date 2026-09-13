@@ -28,6 +28,7 @@ namespace Skill_Hub_BackEnd.Controllers
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<JobResponseDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPublicJobs(
+            [FromQuery] Guid? companyId = null,
             [FromQuery] string? search = null,
             [FromQuery] string? department = null,
             [FromQuery] string? employmentType = null,
@@ -38,6 +39,11 @@ namespace Skill_Hub_BackEnd.Controllers
                 .Include(j => j.Company)
                 .Where(j => j.Status == "Active")
                 .AsQueryable();
+
+            if (companyId.HasValue && companyId.Value != Guid.Empty)
+            {
+                query = query.Where(j => j.CompanyId == companyId.Value);
+            }
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -134,6 +140,83 @@ namespace Skill_Hub_BackEnd.Controllers
             };
 
             return Ok(response);
+        }
+
+        /// <summary>
+        /// Retrieves the public profile of a company by ID or name along with its active vacancies.
+        /// Endpoint: GET /api/public/jobs/company/{idOrName}
+        /// </summary>
+        [HttpGet("company/{idOrName}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetCompanyProfile(string idOrName)
+        {
+            var decoded = System.Net.WebUtility.UrlDecode(idOrName ?? string.Empty).Trim();
+            Skill_Hub_BackEnd.Models.Company? company = null;
+
+            if (Guid.TryParse(decoded, out var companyGuid))
+            {
+                company = await _dbContext.Companies.FindAsync(companyGuid);
+            }
+
+            if (company == null)
+            {
+                var lowerTerm = decoded.ToLower();
+                company = await _dbContext.Companies
+                    .FirstOrDefaultAsync(c => c.CompanyName.ToLower() == lowerTerm || c.ContactEmail.ToLower() == lowerTerm);
+            }
+
+            if (company == null)
+            {
+                return NotFound(new { message = $"Company '{decoded}' not found." });
+            }
+
+            var jobs = await _dbContext.JobVacancies
+                .Where(j => j.CompanyId == company.Id && j.Status == "Active")
+                .OrderByDescending(j => j.CreatedAt)
+                .Select(j => new JobResponseDto
+                {
+                    Id = j.Id,
+                    CompanyId = j.CompanyId,
+                    CompanyName = company.CompanyName,
+                    Title = j.Title,
+                    Department = j.Department,
+                    Location = j.Location,
+                    EmploymentType = j.EmploymentType,
+                    ExperienceLevel = j.ExperienceLevel,
+                    SalaryRange = j.SalaryRange,
+                    Status = j.Status,
+                    Description = j.Description,
+                    WhatWeOffer = j.WhatWeOffer,
+                    CreatedAt = j.CreatedAt,
+                    UpdatedAt = j.UpdatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                company = new
+                {
+                    id = company.Id,
+                    companyName = company.CompanyName,
+                    adminName = company.AdminName ?? company.CompanyName,
+                    contactEmail = company.ContactEmail,
+                    phone = company.Phone,
+                    companySize = company.CompanySize,
+                    foundedYear = company.FoundedYear,
+                    logoUrl = company.LogoUrl,
+                    website = company.Website,
+                    linkedinUrl = company.LinkedinUrl,
+                    twitterUrl = company.TwitterUrl,
+                    githubUrl = company.GithubUrl,
+                    location = company.Location,
+                    industry = company.Industry,
+                    about = company.About,
+                    createdAt = company.CreatedAt,
+                    updatedAt = company.UpdatedAt
+                },
+                jobs = jobs
+            });
         }
     }
 }

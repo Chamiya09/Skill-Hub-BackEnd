@@ -174,22 +174,65 @@ using (var scope = app.Services.CreateScope())
             @"CREATE TABLE IF NOT EXISTS public.""Companies"" (
                 ""Id"" uuid NOT NULL PRIMARY KEY,
                 ""CompanyName"" character varying(200) NOT NULL,
+                ""AdminName"" character varying(150),
                 ""ContactEmail"" character varying(255) NOT NULL,
                 ""PasswordHash"" text NOT NULL DEFAULT '',
-                ""Industry"" character varying(100),
+                ""Phone"" character varying(50),
+                ""CompanySize"" character varying(100),
+                ""FoundedYear"" character varying(50),
+                ""LogoUrl"" character varying(500),
                 ""Website"" character varying(255),
+                ""LinkedinUrl"" character varying(255),
+                ""TwitterUrl"" character varying(255),
+                ""GithubUrl"" character varying(255),
+                ""Location"" character varying(200),
+                ""Industry"" character varying(100),
+                ""About"" text,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
 
-            // 1b. Ensure PasswordHash column exists on Companies
+            // 1b. Ensure Extended Columns exist on Companies table for existing databases
             @"DO $$
             BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'PasswordHash'
-                ) THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'PasswordHash') THEN
                     ALTER TABLE public.""Companies"" ADD COLUMN ""PasswordHash"" text NOT NULL DEFAULT '';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'AdminName') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""AdminName"" character varying(150);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'Phone') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""Phone"" character varying(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'CompanySize') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""CompanySize"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'FoundedYear') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""FoundedYear"" character varying(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'LogoUrl') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""LogoUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'Website') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""Website"" character varying(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'LinkedinUrl') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""LinkedinUrl"" character varying(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'TwitterUrl') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""TwitterUrl"" character varying(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'GithubUrl') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""GithubUrl"" character varying(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'Location') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""Location"" character varying(200);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'Industry') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""Industry"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'About') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""About"" text;
                 END IF;
             END $$;",
 

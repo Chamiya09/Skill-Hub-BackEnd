@@ -129,12 +129,24 @@ namespace Skill_Hub_BackEnd.Controllers
                 Id = company.Id,
                 CompanyId = company.Id,
                 CompanyName = company.CompanyName,
-                FullName = company.CompanyName,
+                AdminName = company.AdminName ?? company.CompanyName,
+                FullName = company.AdminName ?? company.CompanyName,
                 Email = company.ContactEmail,
+                ContactEmail = company.ContactEmail,
                 Role = "Company",
-                Industry = company.Industry,
+                Phone = company.Phone,
+                CompanySize = company.CompanySize,
+                FoundedYear = company.FoundedYear,
+                LogoUrl = company.LogoUrl,
                 Website = company.Website,
-                CreatedAt = company.CreatedAt
+                LinkedinUrl = company.LinkedinUrl,
+                TwitterUrl = company.TwitterUrl,
+                GithubUrl = company.GithubUrl,
+                Location = company.Location,
+                Industry = company.Industry,
+                About = company.About,
+                CreatedAt = company.CreatedAt,
+                UpdatedAt = company.UpdatedAt
             };
 
             return Ok(response);
@@ -171,9 +183,59 @@ namespace Skill_Hub_BackEnd.Controllers
                 company.CompanyName = dto.CompanyName.Trim();
             }
 
+            if (dto.AdminName != null)
+            {
+                company.AdminName = dto.AdminName.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.ContactEmail))
+            {
+                company.ContactEmail = dto.ContactEmail.Trim();
+            }
+
+            if (dto.Phone != null)
+            {
+                company.Phone = dto.Phone.Trim();
+            }
+
+            if (dto.CompanySize != null)
+            {
+                company.CompanySize = dto.CompanySize.Trim();
+            }
+
+            if (dto.FoundedYear != null)
+            {
+                company.FoundedYear = dto.FoundedYear.Trim();
+            }
+
+            if (dto.LogoUrl != null)
+            {
+                company.LogoUrl = dto.LogoUrl.Trim();
+            }
+
             if (dto.Website != null)
             {
                 company.Website = dto.Website.Trim();
+            }
+
+            if (dto.LinkedinUrl != null)
+            {
+                company.LinkedinUrl = dto.LinkedinUrl.Trim();
+            }
+
+            if (dto.TwitterUrl != null)
+            {
+                company.TwitterUrl = dto.TwitterUrl.Trim();
+            }
+
+            if (dto.GithubUrl != null)
+            {
+                company.GithubUrl = dto.GithubUrl.Trim();
+            }
+
+            if (dto.Location != null)
+            {
+                company.Location = dto.Location.Trim();
             }
 
             if (dto.Industry != null)
@@ -181,9 +243,9 @@ namespace Skill_Hub_BackEnd.Controllers
                 company.Industry = dto.Industry.Trim();
             }
 
-            if (!string.IsNullOrWhiteSpace(dto.ContactEmail))
+            if (dto.About != null)
             {
-                company.ContactEmail = dto.ContactEmail.Trim();
+                company.About = dto.About.Trim();
             }
 
             company.UpdatedAt = DateTime.UtcNow;
@@ -194,12 +256,24 @@ namespace Skill_Hub_BackEnd.Controllers
                 Id = company.Id,
                 CompanyId = company.Id,
                 CompanyName = company.CompanyName,
-                FullName = company.CompanyName,
+                AdminName = company.AdminName ?? company.CompanyName,
+                FullName = company.AdminName ?? company.CompanyName,
                 Email = company.ContactEmail,
+                ContactEmail = company.ContactEmail,
                 Role = "Company",
-                Industry = company.Industry,
+                Phone = company.Phone,
+                CompanySize = company.CompanySize,
+                FoundedYear = company.FoundedYear,
+                LogoUrl = company.LogoUrl,
                 Website = company.Website,
-                CreatedAt = company.CreatedAt
+                LinkedinUrl = company.LinkedinUrl,
+                TwitterUrl = company.TwitterUrl,
+                GithubUrl = company.GithubUrl,
+                Location = company.Location,
+                Industry = company.Industry,
+                About = company.About,
+                CreatedAt = company.CreatedAt,
+                UpdatedAt = company.UpdatedAt
             };
 
             return Ok(response);

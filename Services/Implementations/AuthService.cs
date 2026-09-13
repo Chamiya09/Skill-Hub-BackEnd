@@ -65,10 +65,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Id = company.Id,
                     CompanyId = company.Id,
                     CompanyName = company.CompanyName,
-                    FullName = company.CompanyName,
+                    AdminName = company.AdminName ?? company.CompanyName,
+                    FullName = company.AdminName ?? company.CompanyName,
                     Email = company.ContactEmail,
+                    ContactEmail = company.ContactEmail,
                     Role = "Company",
-                    CreatedAt = company.CreatedAt
+                    Phone = company.Phone,
+                    CompanySize = company.CompanySize,
+                    FoundedYear = company.FoundedYear,
+                    LogoUrl = company.LogoUrl,
+                    Website = company.Website,
+                    LinkedinUrl = company.LinkedinUrl,
+                    TwitterUrl = company.TwitterUrl,
+                    GithubUrl = company.GithubUrl,
+                    Location = company.Location,
+                    Industry = company.Industry,
+                    About = company.About,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt
                 }
             };
         }
@@ -99,10 +113,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Id = company.Id,
                     CompanyId = company.Id,
                     CompanyName = company.CompanyName,
-                    FullName = company.CompanyName,
+                    AdminName = company.AdminName ?? company.CompanyName,
+                    FullName = company.AdminName ?? company.CompanyName,
                     Email = company.ContactEmail,
+                    ContactEmail = company.ContactEmail,
                     Role = "Company",
-                    CreatedAt = company.CreatedAt
+                    Phone = company.Phone,
+                    CompanySize = company.CompanySize,
+                    FoundedYear = company.FoundedYear,
+                    LogoUrl = company.LogoUrl,
+                    Website = company.Website,
+                    LinkedinUrl = company.LinkedinUrl,
+                    TwitterUrl = company.TwitterUrl,
+                    GithubUrl = company.GithubUrl,
+                    Location = company.Location,
+                    Industry = company.Industry,
+                    About = company.About,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt
                 }
             };
         }
