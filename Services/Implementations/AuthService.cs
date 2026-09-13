@@ -162,6 +162,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 FirstName = firstName,
                 LastName = lastName,
                 FullName = fullName,
+                Headline = dto.Headline?.Trim(),
+                Phone = dto.Phone?.Trim(),
                 Email = normalizedEmail,
                 PasswordHash = passwordHash,
                 Role = "CANDIDATE",
