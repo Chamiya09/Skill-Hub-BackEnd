@@ -8,11 +8,16 @@ namespace Skill_Hub_BackEnd.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        [Required]
-        public Guid CompanyId { get; set; }
+        public Guid? CompanyId { get; set; }
 
         [ForeignKey(nameof(CompanyId))]
         public Company? Company { get; set; }
+
+        [MaxLength(100)]
+        public string? FirstName { get; set; }
+
+        [MaxLength(100)]
+        public string? LastName { get; set; }
 
         [Required]
         [MaxLength(150)]
@@ -28,7 +33,19 @@ namespace Skill_Hub_BackEnd.Models
 
         [Required]
         [MaxLength(50)]
-        public string Role { get; set; } = "HR_Admin"; // e.g. HR_Admin, Recruiter, Hiring_Manager
+        public string Role { get; set; } = "CANDIDATE"; // e.g. CANDIDATE, HR_Admin, Recruiter, Hiring_Manager
+
+        [MaxLength(200)]
+        public string? Headline { get; set; }
+
+        [MaxLength(50)]
+        public string? Phone { get; set; }
+
+        [MaxLength(200)]
+        public string? Location { get; set; }
+
+        [MaxLength(500)]
+        public string? AvatarUrl { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

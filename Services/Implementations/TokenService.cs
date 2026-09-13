@@ -84,7 +84,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 new Claim(ClaimTypes.Name, user.FullName),
                 new Claim("role", user.Role),
                 new Claim(ClaimTypes.Role, user.Role),
-                new Claim("companyId", user.CompanyId.ToString()),
+                new Claim("companyId", user.CompanyId?.ToString() ?? string.Empty),
                 new Claim("companyName", companyName ?? string.Empty)
             };
 

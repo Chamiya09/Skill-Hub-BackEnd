@@ -34,6 +34,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(u => u.Company)
                       .WithMany(c => c.Users)
                       .HasForeignKey(u => u.CompanyId)
+                      .IsRequired(false)
                       .OnDelete(DeleteBehavior.Cascade);
             });
 

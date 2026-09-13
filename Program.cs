@@ -242,16 +242,48 @@ using (var scope = app.Services.CreateScope())
             // 2. Users Table
             @"CREATE TABLE IF NOT EXISTS public.""Users"" (
                 ""Id"" uuid NOT NULL PRIMARY KEY,
-                ""CompanyId"" uuid NOT NULL REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""CompanyId"" uuid REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""FirstName"" character varying(100),
+                ""LastName"" character varying(100),
                 ""FullName"" character varying(150) NOT NULL,
                 ""Email"" character varying(255) NOT NULL,
                 ""PasswordHash"" text NOT NULL,
-                ""Role"" character varying(50) NOT NULL,
+                ""Role"" character varying(50) NOT NULL DEFAULT 'CANDIDATE',
+                ""Headline"" character varying(200),
+                ""Phone"" character varying(50),
+                ""Location"" character varying(200),
+                ""AvatarUrl"" character varying(500),
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
 
-            // 2b. Indexes on Users
+            // 2b. Ensure Candidate Columns & Nullable CompanyId on existing Users table
+            @"DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'CompanyId' AND is_nullable = 'NO') THEN
+                    ALTER TABLE public.""Users"" ALTER COLUMN ""CompanyId"" DROP NOT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'FirstName') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""FirstName"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'LastName') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""LastName"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Headline') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Headline"" character varying(200);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Phone') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Phone"" character varying(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Location') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Location"" character varying(200);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'AvatarUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""AvatarUrl"" character varying(500);
+                END IF;
+            END $$;",
+
+            // 2c. Indexes on Users
             @"CREATE INDEX IF NOT EXISTS ""IX_Users_CompanyId"" ON public.""Users"" (""CompanyId"");",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Users_Email"" ON public.""Users"" (""Email"");",
 
