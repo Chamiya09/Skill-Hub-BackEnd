@@ -152,6 +152,11 @@ namespace Skill_Hub_BackEnd.Controllers
         public async Task<IActionResult> GetCompanyProfile(string idOrName)
         {
             var decoded = System.Net.WebUtility.UrlDecode(idOrName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(decoded))
+            {
+                return NotFound(new { message = "Company identifier cannot be empty." });
+            }
+
             Skill_Hub_BackEnd.Models.Company? company = null;
 
             if (Guid.TryParse(decoded, out var companyGuid))
@@ -162,8 +167,12 @@ namespace Skill_Hub_BackEnd.Controllers
             if (company == null)
             {
                 var lowerTerm = decoded.ToLower();
+                var unslugged = lowerTerm.Replace("-", " ");
                 company = await _dbContext.Companies
-                    .FirstOrDefaultAsync(c => c.CompanyName.ToLower() == lowerTerm || c.ContactEmail.ToLower() == lowerTerm);
+                    .FirstOrDefaultAsync(c =>
+                        c.CompanyName.ToLower() == lowerTerm ||
+                        c.CompanyName.ToLower() == unslugged ||
+                        c.ContactEmail.ToLower() == lowerTerm);
             }
 
             if (company == null)
