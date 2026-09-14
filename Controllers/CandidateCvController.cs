@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -51,6 +52,21 @@ namespace Skill_Hub_BackEnd.Controllers
         {
             var userId = GetAuthenticatedUserId();
             if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var user = await _dbContext.Users.FindAsync(userId.Value);
+
+            var highlights = new List<CandidateHighlightDto>();
+            if (!string.IsNullOrWhiteSpace(user?.KeyHighlights))
+            {
+                try
+                {
+                    highlights = JsonSerializer.Deserialize<List<CandidateHighlightDto>>(user.KeyHighlights) ?? new List<CandidateHighlightDto>();
+                }
+                catch
+                {
+                    highlights = new List<CandidateHighlightDto>();
+                }
+            }
 
             var experiences = await _dbContext.CandidateExperiences
                 .Where(e => e.UserId == userId.Value)
@@ -113,10 +129,91 @@ namespace Skill_Hub_BackEnd.Controllers
 
             return Ok(new CandidateCvDto
             {
+                Summary = user?.About,
+                KeyHighlights = highlights,
                 Experiences = experiences,
                 Educations = educations,
                 Projects = projects,
                 Skills = skills
+            });
+        }
+
+        // ==========================================
+        // 1b. ABOUT & KEY HIGHLIGHTS ENDPOINTS
+        // ==========================================
+        /// <summary>
+        /// Retrieves the About summary and key highlights for the candidate.
+        /// </summary>
+        [HttpGet("about")]
+        public async Task<IActionResult> GetAbout()
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var user = await _dbContext.Users.FindAsync(userId.Value);
+            if (user == null) return NotFound(new { message = "Candidate profile not found." });
+
+            var highlights = new List<CandidateHighlightDto>();
+            if (!string.IsNullOrWhiteSpace(user.KeyHighlights))
+            {
+                try
+                {
+                    highlights = JsonSerializer.Deserialize<List<CandidateHighlightDto>>(user.KeyHighlights) ?? new List<CandidateHighlightDto>();
+                }
+                catch
+                {
+                    highlights = new List<CandidateHighlightDto>();
+                }
+            }
+
+            return Ok(new CandidateAboutDto
+            {
+                Summary = user.About,
+                KeyHighlights = highlights
+            });
+        }
+
+        /// <summary>
+        /// Updates the candidate's About summary and up to 3 key highlights.
+        /// Endpoint: PUT /api/candidate/about
+        /// </summary>
+        [HttpPut("about")]
+        public async Task<IActionResult> UpdateAbout([FromBody] UpdateCandidateAboutDto dto)
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var user = await _dbContext.Users.FindAsync(userId.Value);
+            if (user == null) return NotFound(new { message = "Candidate profile not found." });
+
+            user.About = dto.Summary;
+
+            var cleanHighlights = new List<CandidateHighlightDto>();
+            if (dto.KeyHighlights != null && dto.KeyHighlights.Count > 0)
+            {
+                cleanHighlights = dto.KeyHighlights
+                    .Where(h => !string.IsNullOrWhiteSpace(h.Category) || !string.IsNullOrWhiteSpace(h.Value) || !string.IsNullOrWhiteSpace(h.Subtext))
+                    .Take(3)
+                    .Select(h => new CandidateHighlightDto
+                    {
+                        Category = h.Category?.Trim() ?? string.Empty,
+                        Value = h.Value?.Trim() ?? string.Empty,
+                        Subtext = h.Subtext?.Trim() ?? string.Empty
+                    })
+                    .ToList();
+            }
+
+            user.KeyHighlights = JsonSerializer.Serialize(cleanHighlights);
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Updated About summary and {Count} KeyHighlights for candidate user {UserId}", cleanHighlights.Count, userId.Value);
+
+            return Ok(new CandidateAboutDto
+            {
+                Summary = user.About,
+                KeyHighlights = cleanHighlights
             });
         }
 
@@ -206,6 +303,44 @@ namespace Skill_Hub_BackEnd.Controllers
             return Ok(new { message = "Experience deleted successfully." });
         }
 
+        [HttpPut("experience/{id:guid}")]
+        public async Task<IActionResult> UpdateExperience(Guid id, [FromBody] CreateExperienceDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var experience = await _dbContext.CandidateExperiences.FirstOrDefaultAsync(e => e.Id == id && e.UserId == userId.Value);
+            if (experience == null) return NotFound(new { message = "Experience entry not found." });
+
+            experience.Title = dto.Title.Trim();
+            experience.Company = dto.Company.Trim();
+            experience.Location = dto.Location?.Trim();
+            experience.StartDate = dto.StartDate.Trim();
+            experience.EndDate = dto.IsCurrent ? null : dto.EndDate?.Trim();
+            experience.IsCurrent = dto.IsCurrent;
+            experience.Description = dto.Description?.Trim();
+            experience.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Updated experience {Id} for candidate user {UserId}", id, userId.Value);
+
+            return Ok(new ExperienceDto
+            {
+                Id = experience.Id,
+                Title = experience.Title,
+                Company = experience.Company,
+                Location = experience.Location,
+                StartDate = experience.StartDate,
+                EndDate = experience.EndDate,
+                IsCurrent = experience.IsCurrent,
+                Description = experience.Description,
+                CreatedAt = experience.CreatedAt
+            });
+        }
+
         // ==========================================
         // 3. EDUCATION ENDPOINTS
         // ==========================================
@@ -289,6 +424,42 @@ namespace Skill_Hub_BackEnd.Controllers
             return Ok(new { message = "Education deleted successfully." });
         }
 
+        [HttpPut("education/{id:guid}")]
+        public async Task<IActionResult> UpdateEducation(Guid id, [FromBody] CreateEducationDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var education = await _dbContext.CandidateEducations.FirstOrDefaultAsync(ed => ed.Id == id && ed.UserId == userId.Value);
+            if (education == null) return NotFound(new { message = "Education entry not found." });
+
+            education.Degree = dto.Degree.Trim();
+            education.Institution = dto.Institution.Trim();
+            education.FieldOfStudy = dto.FieldOfStudy?.Trim();
+            education.StartYear = dto.StartYear.Trim();
+            education.EndYear = dto.EndYear?.Trim();
+            education.Description = dto.Description?.Trim();
+            education.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Updated education {Id} for candidate user {UserId}", id, userId.Value);
+
+            return Ok(new EducationDto
+            {
+                Id = education.Id,
+                Degree = education.Degree,
+                Institution = education.Institution,
+                FieldOfStudy = education.FieldOfStudy,
+                StartYear = education.StartYear,
+                EndYear = education.EndYear,
+                Description = education.Description,
+                CreatedAt = education.CreatedAt
+            });
+        }
+
         // ==========================================
         // 4. PROJECT ENDPOINTS
         // ==========================================
@@ -364,6 +535,38 @@ namespace Skill_Hub_BackEnd.Controllers
             await _dbContext.SaveChangesAsync();
 
             return Ok(new { message = "Project deleted successfully." });
+        }
+
+        [HttpPut("project/{id:guid}")]
+        public async Task<IActionResult> UpdateProject(Guid id, [FromBody] CreateProjectDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var project = await _dbContext.CandidateProjects.FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId.Value);
+            if (project == null) return NotFound(new { message = "Project entry not found." });
+
+            project.ProjectName = dto.ProjectName.Trim();
+            project.Role = dto.Role?.Trim();
+            project.Description = dto.Description?.Trim();
+            project.Link = dto.Link?.Trim();
+            project.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Updated project {Id} for candidate user {UserId}", id, userId.Value);
+
+            return Ok(new ProjectDto
+            {
+                Id = project.Id,
+                ProjectName = project.ProjectName,
+                Role = project.Role,
+                Description = project.Description,
+                Link = project.Link,
+                CreatedAt = project.CreatedAt
+            });
         }
 
         // ==========================================

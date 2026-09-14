@@ -47,6 +47,10 @@ namespace Skill_Hub_BackEnd.Models
         [MaxLength(500)]
         public string? AvatarUrl { get; set; }
 
+        public string? About { get; set; }
+
+        public string? KeyHighlights { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

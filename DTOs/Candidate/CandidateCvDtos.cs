@@ -125,13 +125,43 @@ namespace Skill_Hub_BackEnd.DTOs.Candidate
     }
 
     // ==========================================
-    // 5. AGGREGATE CV DTO
+    // 5. ABOUT & KEY HIGHLIGHTS DTOS
+    // ==========================================
+    public class CandidateHighlightDto
+    {
+        [MaxLength(100)]
+        public string Category { get; set; } = string.Empty;
+
+        [MaxLength(100)]
+        public string Value { get; set; } = string.Empty;
+
+        [MaxLength(200)]
+        public string Subtext { get; set; } = string.Empty;
+    }
+
+    public class UpdateCandidateAboutDto
+    {
+        public string? Summary { get; set; }
+        public List<CandidateHighlightDto>? KeyHighlights { get; set; }
+    }
+
+    public class CandidateAboutDto
+    {
+        public string? Summary { get; set; }
+        public List<CandidateHighlightDto> KeyHighlights { get; set; } = new();
+    }
+
+    // ==========================================
+    // 6. AGGREGATE CV DTO
     // ==========================================
     public class CandidateCvDto
     {
+        public string? Summary { get; set; }
+        public List<CandidateHighlightDto> KeyHighlights { get; set; } = new();
         public List<ExperienceDto> Experiences { get; set; } = new();
         public List<EducationDto> Educations { get; set; } = new();
         public List<ProjectDto> Projects { get; set; } = new();
         public List<SkillDto> Skills { get; set; } = new();
     }
 }
+

@@ -281,6 +281,12 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'AvatarUrl') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""AvatarUrl"" character varying(500);
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'About') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""About"" text;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'KeyHighlights') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""KeyHighlights"" text;
+                END IF;
             END $$;",
 
             // 2c. Indexes on Users

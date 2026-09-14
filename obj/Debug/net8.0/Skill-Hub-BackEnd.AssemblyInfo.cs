@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Skill-Hub-BackEnd")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+735db1e059e5765ef1ba6e63ecdb442efec32040")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9a102c07e29828624453064ed8ef5a7f747dab3a")]
 [assembly: System.Reflection.AssemblyProductAttribute("Skill-Hub-BackEnd")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Skill-Hub-BackEnd")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
