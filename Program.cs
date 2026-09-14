@@ -386,7 +386,23 @@ using (var scope = app.Services.CreateScope())
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
-            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateCertifications_UserId"" ON public.""CandidateCertifications"" (""UserId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateCertifications_UserId"" ON public.""CandidateCertifications"" (""UserId"");",
+
+            // 9. JobApplications Table
+            @"CREATE TABLE IF NOT EXISTS public.""JobApplications"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""AppliedDate"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Applied',
+                ""CoverNote"" character varying(2000),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_JobApplications_JobId_CandidateId"" UNIQUE (""JobId"", ""CandidateId"")
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_JobId"" ON public.""JobApplications"" (""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_CandidateId"" ON public.""JobApplications"" (""CandidateId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_AppliedDate"" ON public.""JobApplications"" (""AppliedDate"");"
         };
 
         foreach (var ddl in ddlStatements)

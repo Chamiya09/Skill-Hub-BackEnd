@@ -317,18 +317,12 @@ namespace Skill_Hub_BackEnd.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetJobApplicants(Guid jobId)
         {
-            var companyId = GetCurrentCompanyId();
-            if (companyId == null)
-            {
-                return Unauthorized(new { message = "Company authentication is required to view applicants." });
-            }
-
             var job = await _dbContext.JobVacancies
-                .FirstOrDefaultAsync(j => j.Id == jobId && j.CompanyId == companyId.Value);
+                .FirstOrDefaultAsync(j => j.Id == jobId);
 
             if (job == null)
             {
-                return NotFound(new { message = $"Job vacancy with ID '{jobId}' was not found or does not belong to your company." });
+                return Ok(new List<JobApplicantDto>());
             }
 
             var applications = await _dbContext.JobApplications
