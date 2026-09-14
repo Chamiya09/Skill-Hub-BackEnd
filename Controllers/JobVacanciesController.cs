@@ -99,7 +99,14 @@ namespace Skill_Hub_BackEnd.Controllers
                 .OrderByDescending(j => j.CreatedAt)
                 .ToListAsync();
 
-            var response = jobs.Select(j => MapToResponseDto(j, companyName));
+            var jobIds = jobs.Select(j => j.Id).ToList();
+            var counts = await _dbContext.JobApplications
+                .Where(a => jobIds.Contains(a.JobId))
+                .GroupBy(a => a.JobId)
+                .Select(g => new { JobId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.JobId, x => x.Count);
+
+            var response = jobs.Select(j => MapToResponseDto(j, companyName, counts.TryGetValue(j.Id, out var c) ? c : 0));
             return Ok(response);
         }
 
@@ -128,7 +135,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 return NotFound(new { message = $"Job vacancy with ID '{id}' was not found or belongs to another company." });
             }
 
-            var response = MapToResponseDto(job, job.Company?.CompanyName ?? string.Empty);
+            var count = await _dbContext.JobApplications.CountAsync(a => a.JobId == id);
+            var response = MapToResponseDto(job, job.Company?.CompanyName ?? string.Empty, count);
             return Ok(response);
         }
 
@@ -216,6 +224,206 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Allows an authenticated candidate to apply for a job vacancy.
+        /// Endpoint: POST /api/jobs/{jobId}/apply
+        /// </summary>
+        [HttpPost("{jobId:guid}/apply")]
+        [Authorize]
+        [ProducesResponseType(typeof(CandidateApplicationResponseDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> ApplyForJob(Guid jobId, [FromBody] ApplyJobDto? dto)
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Unauthorized(new { message = "Authentication token is required to apply for jobs." });
+            }
+
+            var candidate = await _dbContext.Users.FindAsync(userId.Value);
+            if (candidate == null)
+            {
+                return Unauthorized(new { message = "Candidate profile not found." });
+            }
+
+            var job = await _dbContext.JobVacancies
+                .Include(j => j.Company)
+                .FirstOrDefaultAsync(j => j.Id == jobId);
+
+            if (job == null)
+            {
+                return NotFound(new { message = $"Job vacancy with ID '{jobId}' was not found." });
+            }
+
+            if (job.Status.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "This job vacancy is closed and no longer accepting applications." });
+            }
+
+            // Check if already applied
+            var existingApp = await _dbContext.JobApplications
+                .FirstOrDefaultAsync(a => a.JobId == jobId && a.CandidateId == userId.Value);
+
+            if (existingApp != null)
+            {
+                return Conflict(new { message = "You have already submitted an application for this position." });
+            }
+
+            var application = new JobApplication
+            {
+                Id = Guid.NewGuid(),
+                JobId = jobId,
+                CandidateId = userId.Value,
+                AppliedDate = DateTime.UtcNow,
+                Status = "Applied",
+                CoverNote = dto?.CoverNote?.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.JobApplications.Add(application);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Candidate {CandidateId} ('{CandidateName}') applied for Job {JobId} ('{JobTitle}')", 
+                candidate.Id, candidate.FullName, job.Id, job.Title);
+
+            var response = new CandidateApplicationResponseDto
+            {
+                ApplicationId = application.Id,
+                JobId = job.Id,
+                JobTitle = job.Title,
+                Department = job.Department,
+                Location = job.Location,
+                EmploymentType = job.EmploymentType,
+                CompanyName = job.Company?.CompanyName ?? "Skill Hub Partner",
+                CompanyLogoUrl = job.Company?.LogoUrl,
+                AppliedDate = application.AppliedDate,
+                Status = application.Status
+            };
+
+            return StatusCode(StatusCodes.Status201Created, response);
+        }
+
+        /// <summary>
+        /// Fetches the list of applicants for a specific job vacancy owned by the company.
+        /// Endpoint: GET /api/jobs/{jobId}/applications
+        /// </summary>
+        [HttpGet("{jobId:guid}/applications")]
+        [Authorize]
+        [ProducesResponseType(typeof(IEnumerable<JobApplicantDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetJobApplicants(Guid jobId)
+        {
+            var companyId = GetCurrentCompanyId();
+            if (companyId == null)
+            {
+                return Unauthorized(new { message = "Company authentication is required to view applicants." });
+            }
+
+            var job = await _dbContext.JobVacancies
+                .FirstOrDefaultAsync(j => j.Id == jobId && j.CompanyId == companyId.Value);
+
+            if (job == null)
+            {
+                return NotFound(new { message = $"Job vacancy with ID '{jobId}' was not found or does not belong to your company." });
+            }
+
+            var applications = await _dbContext.JobApplications
+                .Where(a => a.JobId == jobId)
+                .Include(a => a.Candidate)
+                .OrderByDescending(a => a.AppliedDate)
+                .ToListAsync();
+
+            var candidateIds = applications.Select(a => a.CandidateId).Distinct().ToList();
+
+            var skillsMap = await _dbContext.CandidateSkills
+                .Where(s => candidateIds.Contains(s.UserId))
+                .GroupBy(s => s.UserId)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(s => s.SkillName).ToList());
+
+            var eduMap = await _dbContext.CandidateEducations
+                .Where(e => candidateIds.Contains(e.UserId))
+                .GroupBy(e => e.UserId)
+                .ToDictionaryAsync(
+                    g => g.Key, 
+                    g => g.OrderByDescending(e => e.EndYear).Select(e => $"{e.Degree} • {e.Institution}").FirstOrDefault()
+                );
+
+            var currentCompanyMap = await _dbContext.CandidateExperiences
+                .Where(e => candidateIds.Contains(e.UserId) && e.IsCurrent)
+                .GroupBy(e => e.UserId)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(e => e.Company).FirstOrDefault());
+
+            var result = applications.Select(app =>
+            {
+                var candidate = app.Candidate;
+                var skills = skillsMap.TryGetValue(app.CandidateId, out var sList) ? sList : new List<string>();
+                var highestEdu = eduMap.TryGetValue(app.CandidateId, out var edu) ? edu : null;
+                var currentComp = currentCompanyMap.TryGetValue(app.CandidateId, out var comp) ? comp : null;
+
+                return new JobApplicantDto
+                {
+                    ApplicationId = app.Id,
+                    JobId = job.Id,
+                    JobTitle = job.Title,
+                    CandidateId = app.CandidateId,
+                    FullName = candidate?.FullName ?? "Applicant",
+                    Email = candidate?.Email ?? string.Empty,
+                    Phone = candidate?.Phone,
+                    Headline = candidate?.Headline,
+                    Location = candidate?.Location,
+                    Experience = candidate?.Experience,
+                    Availability = candidate?.Availability,
+                    AvatarUrl = candidate?.AvatarUrl,
+                    About = candidate?.About,
+                    AppliedDate = app.AppliedDate,
+                    Status = app.Status,
+                    CoverNote = app.CoverNote,
+                    Skills = skills,
+                    HighestEducation = highestEdu,
+                    CurrentCompany = currentComp
+                };
+            }).ToList();
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Checks whether the authenticated candidate has applied to this specific job.
+        /// Endpoint: GET /api/jobs/{jobId}/application-status
+        /// </summary>
+        [HttpGet("{jobId:guid}/application-status")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApplicationStatusDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetApplicationStatus(Guid jobId)
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Ok(new ApplicationStatusDto { HasApplied = false });
+            }
+
+            var app = await _dbContext.JobApplications
+                .FirstOrDefaultAsync(a => a.JobId == jobId && a.CandidateId == userId.Value);
+
+            if (app == null)
+            {
+                return Ok(new ApplicationStatusDto { HasApplied = false });
+            }
+
+            return Ok(new ApplicationStatusDto
+            {
+                HasApplied = true,
+                AppliedDate = app.AppliedDate,
+                Status = app.Status,
+                ApplicationId = app.Id
+            });
+        }
+
+        /// <summary>
         /// Helper to extract the CompanyId from the authenticated user's JWT claims.
         /// </summary>
         private Guid? GetCurrentCompanyId()
@@ -233,9 +441,26 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Helper to extract the UserId from the authenticated user's JWT claims.
+        /// </summary>
+        private Guid? GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("id")?.Value
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+
+            if (Guid.TryParse(userIdClaim, out var userId))
+            {
+                return userId;
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Helper mapping method from JobVacancy model to JobResponseDto.
         /// </summary>
-        private static JobResponseDto MapToResponseDto(JobVacancy job, string companyName)
+        private static JobResponseDto MapToResponseDto(JobVacancy job, string companyName, int applicantsCount = 0)
         {
             return new JobResponseDto
             {
@@ -251,6 +476,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 Status = job.Status,
                 Description = job.Description,
                 WhatWeOffer = job.WhatWeOffer,
+                ApplicantsCount = applicantsCount,
                 CreatedAt = job.CreatedAt,
                 UpdatedAt = job.UpdatedAt
             };

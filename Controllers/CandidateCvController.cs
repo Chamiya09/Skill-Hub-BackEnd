@@ -275,6 +275,166 @@ namespace Skill_Hub_BackEnd.Controllers
             });
         }
 
+        /// <summary>
+        /// Retrieves the complete Digital CV profile of a candidate for employer review.
+        /// Endpoints: GET /api/candidate/{candidateId}/profile, GET /api/employers/candidates/{candidateId}/profile
+        /// </summary>
+        [HttpGet("{candidateId:guid}/profile")]
+        [HttpGet("/api/employers/candidates/{candidateId:guid}/profile")]
+        [Authorize]
+        [ProducesResponseType(typeof(CandidateProfileResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetCandidateProfileForEmployer(Guid candidateId)
+        {
+            var user = await _dbContext.Users.FindAsync(candidateId);
+            if (user == null) return NotFound(new { message = "Candidate not found." });
+
+            var highlights = new List<CandidateHighlightDto>();
+            if (!string.IsNullOrWhiteSpace(user.KeyHighlights))
+            {
+                try
+                {
+                    highlights = JsonSerializer.Deserialize<List<CandidateHighlightDto>>(user.KeyHighlights) ?? new List<CandidateHighlightDto>();
+                }
+                catch
+                {
+                    highlights = new List<CandidateHighlightDto>();
+                }
+            }
+
+            var experiences = await _dbContext.CandidateExperiences
+                .Where(e => e.UserId == candidateId)
+                .OrderByDescending(e => e.CreatedAt)
+                .Select(e => new ExperienceDto
+                {
+                    Id = e.Id,
+                    Title = e.Title,
+                    Company = e.Company,
+                    Location = e.Location,
+                    StartDate = e.StartDate,
+                    EndDate = e.EndDate,
+                    IsCurrent = e.IsCurrent,
+                    Description = e.Description,
+                    CreatedAt = e.CreatedAt
+                })
+                .ToListAsync();
+
+            var educations = await _dbContext.CandidateEducations
+                .Where(ed => ed.UserId == candidateId)
+                .OrderByDescending(ed => ed.CreatedAt)
+                .Select(ed => new EducationDto
+                {
+                    Id = ed.Id,
+                    Degree = ed.Degree,
+                    Institution = ed.Institution,
+                    FieldOfStudy = ed.FieldOfStudy,
+                    StartYear = ed.StartYear,
+                    EndYear = ed.EndYear,
+                    Description = ed.Description,
+                    CreatedAt = ed.CreatedAt
+                })
+                .ToListAsync();
+
+            var projects = await _dbContext.CandidateProjects
+                .Where(p => p.UserId == candidateId)
+                .OrderByDescending(p => p.CreatedAt)
+                .Select(p => new ProjectDto
+                {
+                    Id = p.Id,
+                    ProjectName = p.ProjectName,
+                    Role = p.Role,
+                    Description = p.Description,
+                    Link = p.Link,
+                    CreatedAt = p.CreatedAt
+                })
+                .ToListAsync();
+
+            var skills = await _dbContext.CandidateSkills
+                .Where(s => s.UserId == candidateId)
+                .OrderBy(s => s.CreatedAt)
+                .Select(s => new SkillDto
+                {
+                    Id = s.Id,
+                    SkillName = s.SkillName,
+                    Category = s.Category,
+                    CreatedAt = s.CreatedAt
+                })
+                .ToListAsync();
+
+            var certifications = await _dbContext.CandidateCertifications
+                .Where(c => c.UserId == candidateId)
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new CertificationDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    IssuingOrganization = c.IssuingOrganization,
+                    IssueDate = c.IssueDate,
+                    CredentialUrl = c.CredentialUrl,
+                    CreatedAt = c.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new CandidateProfileResponseDto
+            {
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                FullName = user.FullName,
+                Email = user.Email,
+                Headline = user.Headline,
+                Phone = user.Phone,
+                Location = user.Location,
+                Experience = user.Experience,
+                Availability = user.Availability,
+                AvatarUrl = user.AvatarUrl,
+                Summary = user.About,
+                KeyHighlights = highlights,
+                Experiences = experiences,
+                Educations = educations,
+                Projects = projects,
+                Skills = skills,
+                Certifications = certifications
+            });
+        }
+
+        /// <summary>
+        /// Retrieves all job applications submitted by the current authenticated candidate.
+        /// Endpoints: GET /api/candidate/applications, GET /api/candidate/my-applications
+        /// </summary>
+        [HttpGet("applications")]
+        [HttpGet("my-applications")]
+        [Authorize]
+        [ProducesResponseType(typeof(IEnumerable<Skill_Hub_BackEnd.DTOs.Jobs.CandidateApplicationResponseDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetMyApplications()
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var applications = await _dbContext.JobApplications
+                .Where(a => a.CandidateId == userId.Value)
+                .Include(a => a.Job)
+                    .ThenInclude(j => j!.Company)
+                .OrderByDescending(a => a.AppliedDate)
+                .Select(a => new Skill_Hub_BackEnd.DTOs.Jobs.CandidateApplicationResponseDto
+                {
+                    ApplicationId = a.Id,
+                    JobId = a.JobId,
+                    JobTitle = a.Job != null ? a.Job.Title : "Position",
+                    Department = a.Job != null ? a.Job.Department : string.Empty,
+                    Location = a.Job != null ? a.Job.Location : string.Empty,
+                    EmploymentType = a.Job != null ? a.Job.EmploymentType : string.Empty,
+                    CompanyName = a.Job != null && a.Job.Company != null ? a.Job.Company.CompanyName : "Skill Hub Partner",
+                    CompanyLogoUrl = a.Job != null && a.Job.Company != null ? a.Job.Company.LogoUrl : null,
+                    AppliedDate = a.AppliedDate,
+                    Status = a.Status
+                })
+                .ToListAsync();
+
+            return Ok(applications);
+        }
+
         // ==========================================
         // 1b. ABOUT & KEY HIGHLIGHTS ENDPOINTS
         // ==========================================

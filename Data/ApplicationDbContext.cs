@@ -18,6 +18,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CandidateProject> CandidateProjects => Set<CandidateProject>();
         public DbSet<CandidateSkill> CandidateSkills => Set<CandidateSkill>();
         public DbSet<CandidateCertification> CandidateCertifications => Set<CandidateCertification>();
+        public DbSet<JobApplication> JobApplications => Set<JobApplication>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -54,6 +55,26 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(j => j.Company)
                       .WithMany(c => c.JobVacancies)
                       .HasForeignKey(j => j.CompanyId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // JobApplication Entity Configurations
+            modelBuilder.Entity<JobApplication>(entity =>
+            {
+                entity.ToTable("JobApplications", "public");
+                entity.HasIndex(a => new { a.JobId, a.CandidateId }).IsUnique();
+                entity.HasIndex(a => a.CandidateId);
+                entity.HasIndex(a => a.JobId);
+                entity.HasIndex(a => a.AppliedDate);
+
+                entity.HasOne(a => a.Job)
+                      .WithMany()
+                      .HasForeignKey(a => a.JobId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(a => a.Candidate)
+                      .WithMany()
+                      .HasForeignKey(a => a.CandidateId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
 
