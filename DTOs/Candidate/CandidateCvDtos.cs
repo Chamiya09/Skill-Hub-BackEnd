@@ -192,5 +192,34 @@ namespace Skill_Hub_BackEnd.DTOs.Candidate
         public List<SkillDto> Skills { get; set; } = new();
         public List<CertificationDto> Certifications { get; set; } = new();
     }
+
+    // ==========================================
+    // 8. UNIFIED CANDIDATE PROFILE DTO
+    // ==========================================
+    public class CandidateProfileResponseDto
+    {
+        public Guid Id { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? Headline { get; set; }
+        public string? Phone { get; set; }
+        public string? Location { get; set; }
+        public string? Experience { get; set; }
+        public string? Availability { get; set; }
+        public string? AvatarUrl { get; set; }
+        public string? Website { get; set; }
+        public string? LinkedinUrl { get; set; }
+        public string? GithubUrl { get; set; }
+        public string? Summary { get; set; }
+        public List<CandidateHighlightDto> KeyHighlights { get; set; } = new();
+        public List<ExperienceDto> Experiences { get; set; } = new();
+        public List<EducationDto> Educations { get; set; } = new();
+        public List<ProjectDto> Projects { get; set; } = new();
+        public List<SkillDto> Skills { get; set; } = new();
+        public List<CertificationDto> Certifications { get; set; } = new();
+    }
 }
+
 

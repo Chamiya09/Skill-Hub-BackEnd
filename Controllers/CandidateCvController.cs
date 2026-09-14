@@ -153,6 +153,128 @@ namespace Skill_Hub_BackEnd.Controllers
             });
         }
 
+        /// <summary>
+        /// Retrieves the complete candidate profile including user details and full digital CV.
+        /// Endpoint: GET /api/candidate/profile
+        /// </summary>
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetFullProfile()
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var user = await _dbContext.Users.FindAsync(userId.Value);
+            if (user == null) return NotFound(new { message = "Candidate profile not found." });
+
+            var highlights = new List<CandidateHighlightDto>();
+            if (!string.IsNullOrWhiteSpace(user.KeyHighlights))
+            {
+                try
+                {
+                    highlights = JsonSerializer.Deserialize<List<CandidateHighlightDto>>(user.KeyHighlights) ?? new List<CandidateHighlightDto>();
+                }
+                catch
+                {
+                    highlights = new List<CandidateHighlightDto>();
+                }
+            }
+
+            var experiences = await _dbContext.CandidateExperiences
+                .Where(e => e.UserId == userId.Value)
+                .OrderByDescending(e => e.CreatedAt)
+                .Select(e => new ExperienceDto
+                {
+                    Id = e.Id,
+                    Title = e.Title,
+                    Company = e.Company,
+                    Location = e.Location,
+                    StartDate = e.StartDate,
+                    EndDate = e.EndDate,
+                    IsCurrent = e.IsCurrent,
+                    Description = e.Description,
+                    CreatedAt = e.CreatedAt
+                })
+                .ToListAsync();
+
+            var educations = await _dbContext.CandidateEducations
+                .Where(ed => ed.UserId == userId.Value)
+                .OrderByDescending(ed => ed.CreatedAt)
+                .Select(ed => new EducationDto
+                {
+                    Id = ed.Id,
+                    Degree = ed.Degree,
+                    Institution = ed.Institution,
+                    FieldOfStudy = ed.FieldOfStudy,
+                    StartYear = ed.StartYear,
+                    EndYear = ed.EndYear,
+                    Description = ed.Description,
+                    CreatedAt = ed.CreatedAt
+                })
+                .ToListAsync();
+
+            var projects = await _dbContext.CandidateProjects
+                .Where(p => p.UserId == userId.Value)
+                .OrderByDescending(p => p.CreatedAt)
+                .Select(p => new ProjectDto
+                {
+                    Id = p.Id,
+                    ProjectName = p.ProjectName,
+                    Role = p.Role,
+                    Description = p.Description,
+                    Link = p.Link,
+                    CreatedAt = p.CreatedAt
+                })
+                .ToListAsync();
+
+            var skills = await _dbContext.CandidateSkills
+                .Where(s => s.UserId == userId.Value)
+                .OrderBy(s => s.CreatedAt)
+                .Select(s => new SkillDto
+                {
+                    Id = s.Id,
+                    SkillName = s.SkillName,
+                    Category = s.Category,
+                    CreatedAt = s.CreatedAt
+                })
+                .ToListAsync();
+
+            var certifications = await _dbContext.CandidateCertifications
+                .Where(c => c.UserId == userId.Value)
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new CertificationDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    IssuingOrganization = c.IssuingOrganization,
+                    IssueDate = c.IssueDate,
+                    CredentialUrl = c.CredentialUrl,
+                    CreatedAt = c.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new CandidateProfileResponseDto
+            {
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                FullName = user.FullName,
+                Email = user.Email,
+                Headline = user.Headline,
+                Phone = user.Phone,
+                Location = user.Location,
+                Experience = user.Experience,
+                Availability = user.Availability,
+                AvatarUrl = user.AvatarUrl,
+                Summary = user.About,
+                KeyHighlights = highlights,
+                Experiences = experiences,
+                Educations = educations,
+                Projects = projects,
+                Skills = skills,
+                Certifications = certifications
+            });
+        }
+
         // ==========================================
         // 1b. ABOUT & KEY HIGHLIGHTS ENDPOINTS
         // ==========================================
