@@ -127,6 +127,20 @@ namespace Skill_Hub_BackEnd.Controllers
                 })
                 .ToListAsync();
 
+            var certifications = await _dbContext.CandidateCertifications
+                .Where(c => c.UserId == userId.Value)
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new CertificationDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    IssuingOrganization = c.IssuingOrganization,
+                    IssueDate = c.IssueDate,
+                    CredentialUrl = c.CredentialUrl,
+                    CreatedAt = c.CreatedAt
+                })
+                .ToListAsync();
+
             return Ok(new CandidateCvDto
             {
                 Summary = user?.About,
@@ -134,7 +148,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 Experiences = experiences,
                 Educations = educations,
                 Projects = projects,
-                Skills = skills
+                Skills = skills,
+                Certifications = certifications
             });
         }
 
@@ -637,6 +652,117 @@ namespace Skill_Hub_BackEnd.Controllers
             await _dbContext.SaveChangesAsync();
 
             return Ok(new { message = "Skill deleted successfully." });
+        }
+
+        // ==========================================
+        // 6. CERTIFICATION ENDPOINTS
+        // ==========================================
+        [HttpGet("certification")]
+        public async Task<IActionResult> GetCertifications()
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var list = await _dbContext.CandidateCertifications
+                .Where(c => c.UserId == userId.Value)
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new CertificationDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    IssuingOrganization = c.IssuingOrganization,
+                    IssueDate = c.IssueDate,
+                    CredentialUrl = c.CredentialUrl,
+                    CreatedAt = c.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(list);
+        }
+
+        [HttpPost("certification")]
+        public async Task<IActionResult> AddCertification([FromBody] CreateCertificationDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var cert = new CandidateCertification
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId.Value,
+                Title = dto.Title.Trim(),
+                IssuingOrganization = dto.IssuingOrganization.Trim(),
+                IssueDate = dto.IssueDate?.Trim() ?? string.Empty,
+                CredentialUrl = dto.CredentialUrl?.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.CandidateCertifications.Add(cert);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Added certification '{Title}' for candidate user {UserId}", cert.Title, userId.Value);
+
+            return StatusCode(StatusCodes.Status201Created, new CertificationDto
+            {
+                Id = cert.Id,
+                Title = cert.Title,
+                IssuingOrganization = cert.IssuingOrganization,
+                IssueDate = cert.IssueDate,
+                CredentialUrl = cert.CredentialUrl,
+                CreatedAt = cert.CreatedAt
+            });
+        }
+
+        [HttpPut("certification/{id:guid}")]
+        public async Task<IActionResult> UpdateCertification(Guid id, [FromBody] CreateCertificationDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var cert = await _dbContext.CandidateCertifications.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId.Value);
+            if (cert == null) return NotFound(new { message = "Certification entry not found." });
+
+            cert.Title = dto.Title.Trim();
+            cert.IssuingOrganization = dto.IssuingOrganization.Trim();
+            cert.IssueDate = dto.IssueDate?.Trim() ?? string.Empty;
+            cert.CredentialUrl = dto.CredentialUrl?.Trim();
+            cert.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Updated certification {Id} for candidate user {UserId}", id, userId.Value);
+
+            return Ok(new CertificationDto
+            {
+                Id = cert.Id,
+                Title = cert.Title,
+                IssuingOrganization = cert.IssuingOrganization,
+                IssueDate = cert.IssueDate,
+                CredentialUrl = cert.CredentialUrl,
+                CreatedAt = cert.CreatedAt
+            });
+        }
+
+        [HttpDelete("certification/{id:guid}")]
+        public async Task<IActionResult> DeleteCertification(Guid id)
+        {
+            var userId = GetAuthenticatedUserId();
+            if (!userId.HasValue) return Unauthorized(new { message = "Invalid authentication token." });
+
+            var cert = await _dbContext.CandidateCertifications.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId.Value);
+            if (cert == null) return NotFound(new { message = "Certification entry not found." });
+
+            _dbContext.CandidateCertifications.Remove(cert);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Deleted certification {Id} for candidate user {UserId}", id, userId.Value);
+
+            return Ok(new { message = "Certification deleted successfully." });
         }
     }
 }

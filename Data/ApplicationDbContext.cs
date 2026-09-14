@@ -17,6 +17,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CandidateEducation> CandidateEducations => Set<CandidateEducation>();
         public DbSet<CandidateProject> CandidateProjects => Set<CandidateProject>();
         public DbSet<CandidateSkill> CandidateSkills => Set<CandidateSkill>();
+        public DbSet<CandidateCertification> CandidateCertifications => Set<CandidateCertification>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -97,6 +98,17 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(s => s.User)
                       .WithMany()
                       .HasForeignKey(s => s.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // Candidate Certification Configurations
+            modelBuilder.Entity<CandidateCertification>(entity =>
+            {
+                entity.ToTable("CandidateCertifications", "public");
+                entity.HasIndex(c => c.UserId);
+                entity.HasOne(c => c.User)
+                      .WithMany()
+                      .HasForeignKey(c => c.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
         }

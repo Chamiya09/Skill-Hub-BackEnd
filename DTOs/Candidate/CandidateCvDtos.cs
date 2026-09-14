@@ -125,7 +125,35 @@ namespace Skill_Hub_BackEnd.DTOs.Candidate
     }
 
     // ==========================================
-    // 5. ABOUT & KEY HIGHLIGHTS DTOS
+    // 5. CERTIFICATION DTOS
+    // ==========================================
+    public class CreateCertificationDto
+    {
+        [Required, MaxLength(200)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required, MaxLength(200)]
+        public string IssuingOrganization { get; set; } = string.Empty;
+
+        [MaxLength(100)]
+        public string? IssueDate { get; set; }
+
+        [MaxLength(500)]
+        public string? CredentialUrl { get; set; }
+    }
+
+    public class CertificationDto
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string IssuingOrganization { get; set; } = string.Empty;
+        public string? IssueDate { get; set; }
+        public string? CredentialUrl { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    // ==========================================
+    // 6. ABOUT & KEY HIGHLIGHTS DTOS
     // ==========================================
     public class CandidateHighlightDto
     {
@@ -152,7 +180,7 @@ namespace Skill_Hub_BackEnd.DTOs.Candidate
     }
 
     // ==========================================
-    // 6. AGGREGATE CV DTO
+    // 7. AGGREGATE CV DTO
     // ==========================================
     public class CandidateCvDto
     {
@@ -162,6 +190,7 @@ namespace Skill_Hub_BackEnd.DTOs.Candidate
         public List<EducationDto> Educations { get; set; } = new();
         public List<ProjectDto> Projects { get; set; } = new();
         public List<SkillDto> Skills { get; set; } = new();
+        public List<CertificationDto> Certifications { get; set; } = new();
     }
 }
 

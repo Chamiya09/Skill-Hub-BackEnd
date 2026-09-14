@@ -367,7 +367,20 @@ using (var scope = app.Services.CreateScope())
                 ""Category"" character varying(100),
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
-            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateSkills_UserId"" ON public.""CandidateSkills"" (""UserId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateSkills_UserId"" ON public.""CandidateSkills"" (""UserId"");",
+
+            // 8. CandidateCertifications Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateCertifications"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Title"" character varying(200) NOT NULL,
+                ""IssuingOrganization"" character varying(200) NOT NULL,
+                ""IssueDate"" character varying(100),
+                ""CredentialUrl"" character varying(500),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateCertifications_UserId"" ON public.""CandidateCertifications"" (""UserId"");"
         };
 
         foreach (var ddl in ddlStatements)
