@@ -173,6 +173,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 Headline = user.Headline,
                 Phone = user.Phone,
                 Location = user.Location,
+                Experience = user.Experience,
+                Availability = user.Availability,
                 AvatarUrl = user.AvatarUrl,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt
@@ -237,6 +239,16 @@ namespace Skill_Hub_BackEnd.Controllers
                 user.Location = dto.Location.Trim();
             }
 
+            if (dto.Experience != null)
+            {
+                user.Experience = dto.Experience.Trim();
+            }
+
+            if (dto.Availability != null)
+            {
+                user.Availability = dto.Availability.Trim();
+            }
+
             if (dto.AvatarUrl != null)
             {
                 user.AvatarUrl = dto.AvatarUrl.Trim();
@@ -259,6 +271,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 Headline = user.Headline,
                 Phone = user.Phone,
                 Location = user.Location,
+                Experience = user.Experience,
+                Availability = user.Availability,
                 AvatarUrl = user.AvatarUrl,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt
@@ -275,6 +289,8 @@ namespace Skill_Hub_BackEnd.Controllers
         public string? Headline { get; set; }
         public string? Phone { get; set; }
         public string? Location { get; set; }
+        public string? Experience { get; set; }
+        public string? Availability { get; set; }
         public string? AvatarUrl { get; set; }
     }
 }

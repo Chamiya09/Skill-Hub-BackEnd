@@ -278,6 +278,12 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Location') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""Location"" character varying(200);
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Experience') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Experience"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Availability') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Availability"" character varying(100);
+                END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'AvatarUrl') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""AvatarUrl"" character varying(500);
                 END IF;

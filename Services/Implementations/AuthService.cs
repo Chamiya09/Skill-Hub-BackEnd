@@ -196,6 +196,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Headline = candidate.Headline,
                     Phone = candidate.Phone,
                     Location = candidate.Location,
+                    Experience = candidate.Experience,
+                    Availability = candidate.Availability,
                     AvatarUrl = candidate.AvatarUrl,
                     CreatedAt = candidate.CreatedAt,
                     UpdatedAt = candidate.UpdatedAt
@@ -239,6 +241,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Headline = candidate.Headline,
                     Phone = candidate.Phone,
                     Location = candidate.Location,
+                    Experience = candidate.Experience,
+                    Availability = candidate.Availability,
                     AvatarUrl = candidate.AvatarUrl,
                     CreatedAt = candidate.CreatedAt,
                     UpdatedAt = candidate.UpdatedAt
@@ -277,6 +281,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         Headline = user.Headline,
                         Phone = user.Phone,
                         Location = user.Location,
+                        Experience = user.Experience,
+                        Availability = user.Availability,
                         AvatarUrl = user.AvatarUrl,
                         CreatedAt = user.CreatedAt,
                         UpdatedAt = user.UpdatedAt

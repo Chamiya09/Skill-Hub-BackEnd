@@ -23,6 +23,8 @@ namespace Skill_Hub_BackEnd.DTOs.Users
         public string? TwitterUrl { get; set; }
         public string? GithubUrl { get; set; }
         public string? Location { get; set; }
+        public string? Experience { get; set; }
+        public string? Availability { get; set; }
         public string? Industry { get; set; }
         public string? About { get; set; }
         public DateTime CreatedAt { get; set; }

@@ -44,6 +44,12 @@ namespace Skill_Hub_BackEnd.Models
         [MaxLength(200)]
         public string? Location { get; set; }
 
+        [MaxLength(100)]
+        public string? Experience { get; set; }
+
+        [MaxLength(100)]
+        public string? Availability { get; set; }
+
         [MaxLength(500)]
         public string? AvatarUrl { get; set; }
 
