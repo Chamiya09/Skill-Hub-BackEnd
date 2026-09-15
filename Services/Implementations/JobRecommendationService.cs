@@ -114,7 +114,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                             Location = job.Location,
                             PostedDate = job.CreatedAt,
                             MatchPercentage = percentage,
-                            IsRecommended = percentage >= 80
+                            IsRecommended = percentage >= 70
                         };
                     })
                     .OrderByDescending(job => job.MatchPercentage)
