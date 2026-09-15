@@ -11,17 +11,24 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
     public class JobApplicantDto
     {
         public Guid ApplicationId { get; set; }
+        public Guid Id => ApplicationId;
         public Guid JobId { get; set; }
         public string JobTitle { get; set; } = string.Empty;
         public Guid CandidateId { get; set; }
         public string FullName { get; set; } = string.Empty;
+        public string CandidateName => FullName;
         public string Email { get; set; } = string.Empty;
+        public string CandidateEmail => Email;
         public string? Phone { get; set; }
+        public string? CandidatePhone => Phone;
         public string? Headline { get; set; }
+        public string? CandidateHeadline => Headline;
         public string? Location { get; set; }
+        public string? CandidateLocation => Location;
         public string? Experience { get; set; }
         public string? Availability { get; set; }
         public string? AvatarUrl { get; set; }
+        public string? CandidateAvatarUrl => AvatarUrl;
         public string? About { get; set; }
         public DateTime AppliedDate { get; set; }
         public string Status { get; set; } = "Applied";

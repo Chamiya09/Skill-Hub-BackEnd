@@ -346,10 +346,21 @@ namespace Skill_Hub_BackEnd.Controllers
                     g => g.OrderByDescending(e => e.EndYear).Select(e => $"{e.Degree} • {e.Institution}").FirstOrDefault()
                 );
 
-            var currentCompanyMap = await _dbContext.CandidateExperiences
-                .Where(e => candidateIds.Contains(e.UserId) && e.IsCurrent)
+            var candidateExperiences = await _dbContext.CandidateExperiences
+                .Where(e => candidateIds.Contains(e.UserId))
+                .ToListAsync();
+
+            var currentRoleMap = candidateExperiences
                 .GroupBy(e => e.UserId)
-                .ToDictionaryAsync(g => g.Key, g => g.Select(e => e.Company).FirstOrDefault());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(e => e.IsCurrent).FirstOrDefault()
+                );
+
+            var currentCompanyMap = candidateExperiences
+                .Where(e => e.IsCurrent)
+                .GroupBy(e => e.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(e => e.Company).FirstOrDefault());
 
             var result = applications.Select(app =>
             {
@@ -358,17 +369,53 @@ namespace Skill_Hub_BackEnd.Controllers
                 var highestEdu = eduMap.TryGetValue(app.CandidateId, out var edu) ? edu : null;
                 var currentComp = currentCompanyMap.TryGetValue(app.CandidateId, out var comp) ? comp : null;
 
+                var candidateName = !string.IsNullOrWhiteSpace(candidate?.FullName)
+                    ? candidate.FullName
+                    : $"{candidate?.FirstName} {candidate?.LastName}".Trim();
+
+                if (string.IsNullOrWhiteSpace(candidateName))
+                {
+                    candidateName = !string.IsNullOrWhiteSpace(candidate?.Email) ? candidate.Email : "Applicant";
+                }
+
+                currentRoleMap.TryGetValue(app.CandidateId, out var recentExp);
+
+                var headline = candidate?.Headline;
+                if (string.IsNullOrWhiteSpace(headline))
+                {
+                    if (recentExp != null && !string.IsNullOrWhiteSpace(recentExp.Title))
+                    {
+                        headline = !string.IsNullOrWhiteSpace(recentExp.Company)
+                            ? $"{recentExp.Title} at {recentExp.Company}"
+                            : recentExp.Title;
+                    }
+                    else if (skills.Count > 0)
+                    {
+                        headline = $"{string.Join(" • ", skills.Take(2))} Specialist";
+                    }
+                    else
+                    {
+                        headline = "Candidate Profile";
+                    }
+                }
+
+                var location = candidate?.Location;
+                if (string.IsNullOrWhiteSpace(location) && recentExp != null && !string.IsNullOrWhiteSpace(recentExp.Location))
+                {
+                    location = recentExp.Location;
+                }
+
                 return new JobApplicantDto
                 {
                     ApplicationId = app.Id,
                     JobId = job.Id,
                     JobTitle = job.Title,
                     CandidateId = app.CandidateId,
-                    FullName = candidate?.FullName ?? "Applicant",
+                    FullName = candidateName,
                     Email = candidate?.Email ?? string.Empty,
                     Phone = candidate?.Phone,
-                    Headline = candidate?.Headline,
-                    Location = candidate?.Location,
+                    Headline = headline,
+                    Location = location ?? "Location unspecified",
                     Experience = candidate?.Experience,
                     Availability = candidate?.Availability,
                     AvatarUrl = candidate?.AvatarUrl,
@@ -378,7 +425,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     CoverNote = app.CoverNote,
                     Skills = skills,
                     HighestEducation = highestEdu,
-                    CurrentCompany = currentComp
+                    CurrentCompany = currentComp ?? recentExp?.Company
                 };
             }).ToList();
 
