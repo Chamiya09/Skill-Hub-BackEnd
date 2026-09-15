@@ -34,6 +34,19 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAiAgentService, LangGraphAiAgentService>();
+
+var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
+    ?? throw new InvalidOperationException(
+        "Missing required configuration value: AiAgent:BaseUrl");
+
+builder.Services.AddHttpClient(LangGraphAiAgentService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(35);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
 
 // ==========================================
 // 3. CONTROLLERS & JSON SERIALIZATION
