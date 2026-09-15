@@ -35,6 +35,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAiAgentService, LangGraphAiAgentService>();
+builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
@@ -44,6 +45,14 @@ builder.Services.AddHttpClient(LangGraphAiAgentService.HttpClientName, client =>
 {
     client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(35);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
+builder.Services.AddHttpClient(JobRecommendationService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(90);
     client.DefaultRequestHeaders.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
