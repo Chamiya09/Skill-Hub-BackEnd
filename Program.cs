@@ -15,6 +15,38 @@ AppContext.SetSwitch("System.Net.DisableIPv6", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Local development convenience: the Python worker already owns the repository's
+// untracked .env file. ASP.NET does not load dotenv files automatically, so import
+// only the two Groq settings when they were not supplied by user-secrets, process
+// environment variables, or deployment configuration. Never commit the .env file.
+if (builder.Environment.IsDevelopment() &&
+    string.IsNullOrWhiteSpace(builder.Configuration["Groq:ApiKey"]) &&
+    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GROQ_API_KEY")))
+{
+    var groqEnvPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..",
+        "Skill-Hub-AI-Agent",
+        ".env"));
+
+    if (File.Exists(groqEnvPath))
+    {
+        foreach (var rawLine in File.ReadLines(groqEnvPath))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim().Trim('"', '\'');
+            if (key == "GROQ_API_KEY") builder.Configuration["Groq:ApiKey"] = value;
+            if (key == "GROQ_MODEL") builder.Configuration["Groq:Model"] = value;
+        }
+    }
+}
+
 // ==========================================
 // 1. DATABASE & EF CORE (POSTGRESQL / NEONDB)
 // ==========================================
@@ -34,7 +66,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IAiAgentService, LangGraphAiAgentService>();
+builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
+builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
@@ -44,7 +77,17 @@ var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
 builder.Services.AddHttpClient(LangGraphAiAgentService.HttpClientName, client =>
 {
     client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(35);
+    // Keep this below the frontend's 120-second ceiling so the API can return a
+    // controlled error, while allowing the evaluator and policy pass to finish.
+    client.Timeout = TimeSpan.FromSeconds(110);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
+builder.Services.AddHttpClient(GroqAiAgentService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri("https://api.groq.com/openai/v1/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(110);
     client.DefaultRequestHeaders.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });

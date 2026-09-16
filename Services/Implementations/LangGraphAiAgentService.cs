@@ -23,14 +23,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             _logger = logger;
         }
 
-        public async Task<AiMatchResponseDto> AnalyzeCandidateMatchAsync(AiMatchRequestDto request)
+        public async Task<AiMatchResponseDto> AnalyzeCandidateMatchAsync(
+            AiMatchRequestDto request,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            var payload = new LangGraphMatchRequest(
-                request.CandidateSkills,
-                request.CandidateExperienceYears,
-                request.JobRequirements);
+            // Forward only the DTOs bound from this request; no sample or fallback
+            // candidate/job data is introduced in the service layer.
+            var payload = new LangGraphMatchRequest(request.Candidate, request.Job);
 
             try
             {
@@ -38,20 +39,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 using var response = await client.PostAsJsonAsync(
                     "api/ai/analyze-match",
                     payload,
-                    JsonOptions);
+                    JsonOptions,
+                    cancellationToken);
 
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError(
+                        "LangGraph match endpoint returned {StatusCode}: {ResponseBody}",
+                        (int)response.StatusCode,
+                        responseBody);
+                    response.EnsureSuccessStatusCode();
+                }
 
-                var result = await response.Content.ReadFromJsonAsync<LangGraphMatchResponse>(JsonOptions);
+                var result = await response.Content.ReadFromJsonAsync<LangGraphMatchResponse>(
+                    JsonOptions,
+                    cancellationToken);
                 if (result is null ||
-                    result.Breakdown is null ||
-                    result.Breakdown.Skills is < 0 or > 40 ||
-                    result.Breakdown.Experience is < 0 or > 35 ||
-                    result.Breakdown.Projects is < 0 or > 25 ||
                     result.MatchPercentage is < 0 or > 100 ||
-                    result.MatchPercentage != result.Breakdown.Skills
-                        + result.Breakdown.Experience
-                        + result.Breakdown.Projects ||
                     string.IsNullOrWhiteSpace(result.Recommendation))
                 {
                     throw new JsonException("The LangGraph service returned an invalid response.");
@@ -61,7 +66,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 {
                     MatchPercentage = result.MatchPercentage,
                     Strengths = result.Strengths ?? new List<string>(),
-                    MissingSkills = result.MissingSkills ?? new List<string>(),
+                    MissingSkillGaps = result.MissingSkills ?? new List<string>(),
                     AiRecommendation = result.Recommendation
                 };
             }
@@ -70,6 +75,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 _logger.LogError(exception, "Unable to communicate with the LangGraph AI service.");
                 throw new InvalidOperationException(
                     "The AI match-analysis service is unavailable.", exception);
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (TaskCanceledException exception)
             {
@@ -86,20 +95,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         }
 
         private sealed record LangGraphMatchRequest(
-            [property: JsonPropertyName("candidate_skills")] List<string> CandidateSkills,
-            [property: JsonPropertyName("candidate_experience_years")] int CandidateExperienceYears,
-            [property: JsonPropertyName("job_requirements")] List<string> JobRequirements);
+            [property: JsonPropertyName("candidate_data")] CandidateDto Candidate,
+            [property: JsonPropertyName("job_data")] JobDto Job);
 
         private sealed record LangGraphMatchResponse(
-            [property: JsonPropertyName("breakdown")] LangGraphMatchBreakdown Breakdown,
-            [property: JsonPropertyName("matchPercentage")] int MatchPercentage,
-            [property: JsonPropertyName("strengths")] List<string>? Strengths,
-            [property: JsonPropertyName("missingSkills")] List<string>? MissingSkills,
-            [property: JsonPropertyName("aiRecommendation")] string Recommendation);
-
-        private sealed record LangGraphMatchBreakdown(
-            [property: JsonPropertyName("skills")] int Skills,
-            [property: JsonPropertyName("experience")] int Experience,
-            [property: JsonPropertyName("projects")] int Projects);
+            [property: JsonPropertyName("MatchPercentage")] int MatchPercentage,
+            [property: JsonPropertyName("Strengths")] List<string>? Strengths,
+            [property: JsonPropertyName("MissingSkillGaps")] List<string>? MissingSkills,
+            [property: JsonPropertyName("AiRecommendation")] string Recommendation);
     }
 }

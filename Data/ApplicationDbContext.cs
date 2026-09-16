@@ -102,7 +102,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.ToTable("CandidateExperiences", "public");
                 entity.HasIndex(e => e.UserId);
                 entity.HasOne(e => e.User)
-                      .WithMany()
+                      .WithMany(user => user.Experiences)
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -113,7 +113,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.ToTable("CandidateEducations", "public");
                 entity.HasIndex(e => e.UserId);
                 entity.HasOne(e => e.User)
-                      .WithMany()
+                      .WithMany(user => user.Educations)
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -124,7 +124,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.ToTable("CandidateProjects", "public");
                 entity.HasIndex(p => p.UserId);
                 entity.HasOne(p => p.User)
-                      .WithMany()
+                      .WithMany(user => user.Projects)
                       .HasForeignKey(p => p.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -135,7 +135,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.ToTable("CandidateSkills", "public");
                 entity.HasIndex(s => s.UserId);
                 entity.HasOne(s => s.User)
-                      .WithMany()
+                      .WithMany(user => user.Skills)
                       .HasForeignKey(s => s.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -146,7 +146,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.ToTable("CandidateCertifications", "public");
                 entity.HasIndex(c => c.UserId);
                 entity.HasOne(c => c.User)
-                      .WithMany()
+                      .WithMany(user => user.Certifications)
                       .HasForeignKey(c => c.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });

@@ -60,5 +60,11 @@ namespace Skill_Hub_BackEnd.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<CandidateSkill> Skills { get; set; } = new List<CandidateSkill>();
+        public ICollection<CandidateExperience> Experiences { get; set; } = new List<CandidateExperience>();
+        public ICollection<CandidateCertification> Certifications { get; set; } = new List<CandidateCertification>();
+        public ICollection<CandidateProject> Projects { get; set; } = new List<CandidateProject>();
+        public ICollection<CandidateEducation> Educations { get; set; } = new List<CandidateEducation>();
     }
 }
