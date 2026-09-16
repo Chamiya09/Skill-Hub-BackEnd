@@ -19,6 +19,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CandidateSkill> CandidateSkills => Set<CandidateSkill>();
         public DbSet<CandidateCertification> CandidateCertifications => Set<CandidateCertification>();
         public DbSet<JobApplication> JobApplications => Set<JobApplication>();
+        public DbSet<AiMatchResult> AiMatchResults => Set<AiMatchResult>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -75,6 +76,23 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(a => a.Candidate)
                       .WithMany()
                       .HasForeignKey(a => a.CandidateId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<AiMatchResult>(entity =>
+            {
+                entity.ToTable("AiMatchResults", "public");
+                entity.HasIndex(result => new { result.CandidateId, result.JobId }).IsUnique();
+                entity.HasIndex(result => result.JobId);
+
+                entity.HasOne(result => result.Candidate)
+                      .WithMany()
+                      .HasForeignKey(result => result.CandidateId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(result => result.Job)
+                      .WithMany()
+                      .HasForeignKey(result => result.JobId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
 

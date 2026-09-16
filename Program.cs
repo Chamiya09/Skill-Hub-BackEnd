@@ -424,7 +424,19 @@ using (var scope = app.Services.CreateScope())
             );",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_JobId"" ON public.""JobApplications"" (""JobId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_CandidateId"" ON public.""JobApplications"" (""CandidateId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_AppliedDate"" ON public.""JobApplications"" (""AppliedDate"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_AppliedDate"" ON public.""JobApplications"" (""AppliedDate"");",
+
+            // 10. Deterministic AI Match Cache
+            @"CREATE TABLE IF NOT EXISTS public.""AiMatchResults"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""MatchPercentage"" integer NOT NULL CHECK (""MatchPercentage"" BETWEEN 0 AND 100),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_AiMatchResults_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
+            );",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AiMatchResults_CandidateId_JobId"" ON public.""AiMatchResults"" (""CandidateId"", ""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");"
         };
 
         foreach (var ddl in ddlStatements)

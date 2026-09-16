@@ -42,17 +42,6 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new KeyNotFoundException("Candidate was not found.");
             }
 
-            var skills = await _dbContext.CandidateSkills
-                .AsNoTracking()
-                .Where(skill => skill.UserId == candidateId)
-                .Select(skill => skill.SkillName)
-                .ToListAsync(cancellationToken);
-
-            if (skills.Count == 0)
-            {
-                return Array.Empty<RecommendedJobResponseDto>();
-            }
-
             // Bound the batch to protect AI latency and provider rate limits.
             var jobs = await _dbContext.JobVacancies
                 .AsNoTracking()
@@ -67,45 +56,116 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 return Array.Empty<RecommendedJobResponseDto>();
             }
 
-            var payload = new BatchRecommendationRequest(
-                skills,
-                jobs.Select(job => new BatchJobRequest(
-                    job.Id,
-                    job.Title,
-                    job.Company?.CompanyName ?? "Company",
-                    job.Location,
-                    new List<string>
-                    {
-                        job.Title,
-                        job.Department,
-                        job.ExperienceLevel,
-                        job.EmploymentType
-                    })).ToList());
+            var jobIds = jobs.Select(job => job.Id).ToList();
+            var cachedResults = await _dbContext.AiMatchResults
+                .AsNoTracking()
+                .Where(result =>
+                    result.CandidateId == candidateId &&
+                    jobIds.Contains(result.JobId))
+                .ToDictionaryAsync(
+                    result => result.JobId,
+                    result => Math.Clamp(result.MatchPercentage, 0, 100),
+                    cancellationToken);
+
+            var uncachedJobs = jobs
+                .Where(job => !cachedResults.ContainsKey(job.Id))
+                .ToList();
 
             try
             {
-                var client = _httpClientFactory.CreateClient(HttpClientName);
-                using var response = await client.PostAsJsonAsync(
-                    "api/ai/batch-recommend",
-                    payload,
-                    JsonOptions,
-                    cancellationToken);
+                var skills = new List<string>();
+                if (uncachedJobs.Count > 0)
+                {
+                    skills = await _dbContext.CandidateSkills
+                        .AsNoTracking()
+                        .Where(skill => skill.UserId == candidateId)
+                        .Select(skill => skill.SkillName)
+                        .ToListAsync(cancellationToken);
 
-                response.EnsureSuccessStatusCode();
+                    if (skills.Count == 0)
+                    {
+                        uncachedJobs.Clear();
+                    }
+                }
 
-                var scores = await response.Content.ReadFromJsonAsync<List<BatchRecommendationResult>>(
-                    JsonOptions,
-                    cancellationToken)
-                    ?? throw new JsonException("The AI service returned an empty response.");
+                if (uncachedJobs.Count > 0)
+                {
+                    var payload = new BatchRecommendationRequest(
+                        skills,
+                        uncachedJobs.Select(job => new BatchJobRequest(
+                            job.Id,
+                            job.Title,
+                            job.Company?.CompanyName ?? "Company",
+                            job.Location,
+                            new List<string>
+                            {
+                                job.Title,
+                                job.Department,
+                                job.ExperienceLevel,
+                                job.EmploymentType
+                            })).ToList());
+
+                    var client = _httpClientFactory.CreateClient(HttpClientName);
+                    using var response = await client.PostAsJsonAsync(
+                        "api/ai/batch-recommend",
+                        payload,
+                        JsonOptions,
+                        cancellationToken);
+
+                    response.EnsureSuccessStatusCode();
+
+                    var scores = await response.Content.ReadFromJsonAsync<List<BatchRecommendationResult>>(
+                        JsonOptions,
+                        cancellationToken)
+                        ?? throw new JsonException("The AI service returned an empty response.");
+
+                    var uncachedJobIds = uncachedJobs.Select(job => job.Id).ToHashSet();
+                    var newScores = scores
+                        .Where(score => uncachedJobIds.Contains(score.JobId))
+                        .GroupBy(score => score.JobId)
+                        .Select(group => group.First())
+                        .ToList();
+
+                    foreach (var score in newScores)
+                    {
+                        var cacheId = Guid.NewGuid();
+                        var percentage = Math.Clamp(score.MatchPercentage, 0, 100);
+                        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                            $@"INSERT INTO public.""AiMatchResults""
+                                (""Id"", ""CandidateId"", ""JobId"", ""MatchPercentage"", ""CreatedAt"")
+                               VALUES ({cacheId}, {candidateId}, {score.JobId}, {percentage}, {DateTime.UtcNow})
+                               ON CONFLICT (""CandidateId"", ""JobId"") DO NOTHING",
+                            cancellationToken);
+                    }
+
+                    if (newScores.Count > 0)
+                    {
+                        var scoredJobIds = newScores.Select(score => score.JobId).ToList();
+                        var persistedScores = await _dbContext.AiMatchResults
+                            .AsNoTracking()
+                            .Where(result =>
+                                result.CandidateId == candidateId &&
+                                scoredJobIds.Contains(result.JobId))
+                            .ToDictionaryAsync(
+                                result => result.JobId,
+                                result => Math.Clamp(result.MatchPercentage, 0, 100),
+                                cancellationToken);
+
+                        foreach (var persistedScore in persistedScores)
+                        {
+                            cachedResults[persistedScore.Key] = persistedScore.Value;
+                        }
+                    }
+                }
 
                 var jobsById = jobs.ToDictionary(job => job.Id);
 
-                return scores
-                    .Where(score => jobsById.ContainsKey(score.JobId))
-                    .Select(score =>
+                return cachedResults
+                    .Where(result => jobsById.ContainsKey(result.Key))
+                    .Select(result =>
                     {
-                        var job = jobsById[score.JobId];
-                        var percentage = Math.Clamp(score.MatchPercentage, 0, 100);
+                        var job = jobsById[result.Key];
+                        var percentage = result.Value;
                         return new RecommendedJobResponseDto
                         {
                             JobId = job.Id,

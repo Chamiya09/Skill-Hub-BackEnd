@@ -44,7 +44,14 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
                 var result = await response.Content.ReadFromJsonAsync<LangGraphMatchResponse>(JsonOptions);
                 if (result is null ||
+                    result.Breakdown is null ||
+                    result.Breakdown.Skills is < 0 or > 40 ||
+                    result.Breakdown.Experience is < 0 or > 35 ||
+                    result.Breakdown.Projects is < 0 or > 25 ||
                     result.MatchPercentage is < 0 or > 100 ||
+                    result.MatchPercentage != result.Breakdown.Skills
+                        + result.Breakdown.Experience
+                        + result.Breakdown.Projects ||
                     string.IsNullOrWhiteSpace(result.Recommendation))
                 {
                     throw new JsonException("The LangGraph service returned an invalid response.");
@@ -84,9 +91,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             [property: JsonPropertyName("job_requirements")] List<string> JobRequirements);
 
         private sealed record LangGraphMatchResponse(
-            [property: JsonPropertyName("match_percentage")] int MatchPercentage,
+            [property: JsonPropertyName("breakdown")] LangGraphMatchBreakdown Breakdown,
+            [property: JsonPropertyName("matchPercentage")] int MatchPercentage,
             [property: JsonPropertyName("strengths")] List<string>? Strengths,
-            [property: JsonPropertyName("missing_skills")] List<string>? MissingSkills,
-            [property: JsonPropertyName("recommendation")] string Recommendation);
+            [property: JsonPropertyName("missingSkills")] List<string>? MissingSkills,
+            [property: JsonPropertyName("aiRecommendation")] string Recommendation);
+
+        private sealed record LangGraphMatchBreakdown(
+            [property: JsonPropertyName("skills")] int Skills,
+            [property: JsonPropertyName("experience")] int Experience,
+            [property: JsonPropertyName("projects")] int Projects);
     }
 }
