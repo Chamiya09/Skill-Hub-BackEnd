@@ -43,6 +43,7 @@ if (builder.Environment.IsDevelopment() &&
             var value = line[(separator + 1)..].Trim().Trim('"', '\'');
             if (key == "GROQ_API_KEY") builder.Configuration["Groq:ApiKey"] = value;
             if (key == "GROQ_MODEL") builder.Configuration["Groq:Model"] = value;
+            if (key == "GROQ_FALLBACK_MODEL") builder.Configuration["Groq:FallbackModel"] = value;
         }
     }
 }

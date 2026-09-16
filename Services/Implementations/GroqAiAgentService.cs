@@ -32,10 +32,16 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            var apiKey = _configuration["Groq:ApiKey"]
-                ?? Environment.GetEnvironmentVariable("GROQ_API_KEY")
-                ?? throw new InvalidOperationException("GROQ_API_KEY is not configured.");
+            var apiKey = _configuration["Groq:ApiKey"];
+            if (string.IsNullOrWhiteSpace(apiKey))
+                apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY");
+            if (string.IsNullOrWhiteSpace(apiKey))
+                throw new InvalidOperationException("GROQ_API_KEY is not configured.");
+
             var model = _configuration["Groq:Model"] ?? "openai/gpt-oss-20b";
+            var fallbackModel = _configuration["Groq:FallbackModel"]
+                ?? Environment.GetEnvironmentVariable("GROQ_FALLBACK_MODEL")
+                ?? "qwen/qwen3.8-27b";
 
             var candidateJson = JsonSerializer.Serialize(request.Candidate, JsonOptions);
             var jobJson = JsonSerializer.Serialize(request.Job, JsonOptions);
@@ -60,54 +66,61 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 {jobJson}
                 """;
 
-            var groqRequest = new GroqChatRequest(
-                model,
-                new List<GroqMessage>
-                {
-                    new("system", systemPrompt),
-                    new("user", userPrompt),
-                },
-                new GroqResponseFormat("json_object"),
-                Temperature: 0);
-
-            var outgoingJson = JsonSerializer.Serialize(groqRequest, JsonOptions);
-            Console.WriteLine($"Sending dynamic match data to Groq: {outgoingJson}");
+            var messages = new List<GroqMessage>
+            {
+                new("system", systemPrompt),
+                new("user", userPrompt),
+            };
 
             try
             {
                 var client = _httpClientFactory.CreateClient(HttpClientName);
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+                var response = await SendAsync(client, apiKey, model, messages, cancellationToken);
+                try
                 {
-                    Content = JsonContent.Create(groqRequest, options: JsonOptions),
-                };
-                httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests &&
+                        !string.Equals(model, fallbackModel, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning(
+                            "Groq model {PrimaryModel} is rate limited; retrying once with {FallbackModel}.",
+                            model,
+                            fallbackModel);
+                        response.Dispose();
+                        response = await SendAsync(
+                            client, apiKey, fallbackModel, messages, cancellationToken);
+                        responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    }
 
-                using var response = await client.SendAsync(httpRequest, cancellationToken);
-                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("Groq returned {StatusCode}: {ResponseBody}",
-                        (int)response.StatusCode, responseBody);
-                    response.EnsureSuccessStatusCode();
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Groq returned {StatusCode}: {ResponseBody}",
+                            (int)response.StatusCode, responseBody);
+                        response.EnsureSuccessStatusCode();
+                    }
+
+                    var envelope = JsonSerializer.Deserialize<GroqChatResponse>(responseBody, JsonOptions);
+                    var content = envelope?.Choices?.FirstOrDefault()?.Message?.Content;
+                    if (string.IsNullOrWhiteSpace(content))
+                        throw new JsonException("Groq returned an empty completion.");
+
+                    var result = JsonSerializer.Deserialize<GroqMatchResult>(content, JsonOptions);
+                    if (result is null || result.MatchPercentage is < 0 or > 100 ||
+                        string.IsNullOrWhiteSpace(result.AiRecommendation))
+                        throw new JsonException("Groq returned an invalid match result.");
+
+                    return new AiMatchResponseDto
+                    {
+                        MatchPercentage = result.MatchPercentage,
+                        Strengths = result.Strengths ?? new(),
+                        MissingSkillGaps = result.MissingSkillGaps ?? new(),
+                        AiRecommendation = result.AiRecommendation,
+                    };
                 }
-
-                var envelope = JsonSerializer.Deserialize<GroqChatResponse>(responseBody, JsonOptions);
-                var content = envelope?.Choices?.FirstOrDefault()?.Message?.Content;
-                if (string.IsNullOrWhiteSpace(content))
-                    throw new JsonException("Groq returned an empty completion.");
-
-                var result = JsonSerializer.Deserialize<GroqMatchResult>(content, JsonOptions);
-                if (result is null || result.MatchPercentage is < 0 or > 100 ||
-                    string.IsNullOrWhiteSpace(result.AiRecommendation))
-                    throw new JsonException("Groq returned an invalid match result.");
-
-                return new AiMatchResponseDto
+                finally
                 {
-                    MatchPercentage = result.MatchPercentage,
-                    Strengths = result.Strengths ?? new(),
-                    MissingSkillGaps = result.MissingSkillGaps ?? new(),
-                    AiRecommendation = result.AiRecommendation,
-                };
+                    response.Dispose();
+                }
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -118,6 +131,28 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 _logger.LogError(exception, "Direct Groq match analysis failed.");
                 throw new InvalidOperationException("The Groq match-analysis service is unavailable.", exception);
             }
+        }
+
+        private static async Task<HttpResponseMessage> SendAsync(
+            HttpClient client,
+            string apiKey,
+            string model,
+            List<GroqMessage> messages,
+            CancellationToken cancellationToken)
+        {
+            var payload = new GroqChatRequest(
+                model,
+                messages,
+                new GroqResponseFormat("json_object"),
+                Temperature: 0);
+            Console.WriteLine($"Sending dynamic match data to Groq: {JsonSerializer.Serialize(payload, JsonOptions)}");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+            {
+                Content = JsonContent.Create(payload, options: JsonOptions),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            return await client.SendAsync(request, cancellationToken);
         }
 
         private sealed record GroqChatRequest(
