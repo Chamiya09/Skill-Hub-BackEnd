@@ -78,6 +78,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .Select(project => new { project.ProjectName, project.Role, project.Description })
                 .ToList();
 
+            var educations = candidate.Educations
+                .Select(education => new
+                {
+                    education.Degree,
+                    education.Institution,
+                    education.FieldOfStudy,
+                    education.StartYear,
+                    education.EndYear,
+                    education.Description,
+                })
+                .ToList();
+
             var experienceYears = ParseYears(candidate.Experience)
                 ?? CalculateYears(experiences.Select(experience =>
                     (experience.StartDate, experience.EndDate, experience.IsCurrent)));
@@ -93,6 +105,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Experiences = experiences
                         .Select(value => JsonSerializer.SerializeToElement(value)).ToList(),
                     Projects = projects
+                        .Select(value => JsonSerializer.SerializeToElement(value)).ToList(),
+                    Educations = educations
                         .Select(value => JsonSerializer.SerializeToElement(value)).ToList(),
                     Certifications = certifications
                         .Select(value => JsonSerializer.SerializeToElement(value)).ToList(),
