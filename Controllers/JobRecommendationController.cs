@@ -8,7 +8,7 @@ namespace Skill_Hub_BackEnd.Controllers
 {
     [ApiController]
     [Route("api/candidate/{id:guid}/recommended-jobs")]
-    [Authorize(Roles = "Candidate")]
+    [Authorize(Roles = "Candidate,CANDIDATE")]
     [Produces("application/json")]
     public sealed class JobRecommendationController : ControllerBase
     {
