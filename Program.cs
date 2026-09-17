@@ -496,7 +496,18 @@ using (var scope = app.Services.CreateScope())
             @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""MissingSkillsJson"" text;",
             @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""Recommendation"" text;",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AiMatchResults_CandidateId_JobId"" ON public.""AiMatchResults"" (""CandidateId"", ""JobId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");",
+
+            // 11. Candidate-owned saved job bookmarks
+            @"CREATE TABLE IF NOT EXISTS public.""SavedJobs"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""SavedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_SavedJobs_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
+            );",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SavedJobs_CandidateId_JobId"" ON public.""SavedJobs"" (""CandidateId"", ""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");"
         };
 
         foreach (var ddl in ddlStatements)
