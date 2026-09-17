@@ -4,14 +4,9 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
 {
     public interface IAssessmentService
     {
-        // HR CRUD & HITL Question Generation
+        // HR CRUD & Question Templates
         Task<AssessmentResponseDto> CreateAssessmentManualAsync(
             CreateAssessmentManualDto dto,
-            Guid hrManagerId,
-            CancellationToken cancellationToken = default);
-
-        Task<AssessmentResponseDto> GenerateQuestionsWithAiAsync(
-            GenerateAiQuestionsRequestDto dto,
             Guid hrManagerId,
             CancellationToken cancellationToken = default);
 
@@ -54,7 +49,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid hrManagerId,
             CancellationToken cancellationToken = default);
 
-        // Candidate Exam Flow
+        // Candidate Exam Flow & Portal
+        Task<IReadOnlyList<CandidateAssessmentListItemDto>> GetCandidateAssessmentsAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default);
+
         Task<StartExamResponseDto> StartExamAsync(
             Guid submissionId,
             Guid? candidateId = null,
@@ -78,6 +77,16 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
 
         Task<SubmissionDetailDto> GetSubmissionDetailAsync(
             Guid submissionId,
+            CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<SubmissionDetailDto>> GetSubmissionsByJobAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default);
+
+        Task<SubmissionDetailDto> ReviewSubmissionAsync(
+            Guid submissionId,
+            ManualReviewSubmissionDto dto,
+            Guid hrManagerId,
             CancellationToken cancellationToken = default);
 
         // Leaderboard & Top 5 Outgoing Contract to Student 3

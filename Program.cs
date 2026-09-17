@@ -551,7 +551,10 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_CandidateId"" ON public.""Submissions"" (""CandidateId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_ApplicationId"" ON public.""Submissions"" (""ApplicationId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_JobVacancyId"" ON public.""Submissions"" (""JobVacancyId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_Status"" ON public.""Submissions"" (""Status"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_Status"" ON public.""Submissions"" (""Status"");",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""IsSelectedForInterview"" boolean NOT NULL DEFAULT false;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewerFeedback"" text;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewedBy"" uuid;"
         };
 
         foreach (var ddl in ddlStatements)

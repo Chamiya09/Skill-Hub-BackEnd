@@ -199,6 +199,9 @@ namespace Skill_Hub_BackEnd.Data
                 entity.Property(s => s.ExamScore).HasPrecision(5, 2);
                 entity.Property(s => s.CvScore).HasPrecision(5, 2);
                 entity.Property(s => s.FinalWeightedScore).HasPrecision(5, 2);
+                entity.Property(s => s.IsSelectedForInterview).HasDefaultValue(false);
+                entity.Property(s => s.ReviewerFeedback);
+                entity.Property(s => s.ReviewedBy);
 
                 entity.HasOne(s => s.Assessment)
                       .WithMany(a => a.Submissions)

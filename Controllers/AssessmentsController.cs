@@ -40,21 +40,6 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Option 2: AI drafts coding questions based on Job Title, JD, and skills (Human-in-the-Loop).
-        /// </summary>
-        [HttpPost("generate-questions")]
-        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
-        [ProducesResponseType(typeof(AssessmentResponseDto), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GenerateQuestionsWithAi(
-            [FromBody] GenerateAiQuestionsRequestDto dto,
-            CancellationToken cancellationToken)
-        {
-            var hrManagerId = GetCurrentUserId();
-            var result = await _assessmentService.GenerateQuestionsWithAiAsync(dto, hrManagerId, cancellationToken);
-            return Ok(result);
-        }
-
-        /// <summary>
         /// HR updates draft questions, passing threshold, or time limit.
         /// </summary>
         [HttpPut("{id:guid}")]
@@ -190,9 +175,20 @@ namespace Skill_Hub_BackEnd.Controllers
             Guid submissionId,
             CancellationToken cancellationToken)
         {
-            var candidateId = GetCandidateId();
-            var paper = await _assessmentService.GetExamPaperAsync(submissionId, candidateId, cancellationToken);
-            return Ok(paper);
+            try
+            {
+                var candidateId = GetCandidateId();
+                var paper = await _assessmentService.GetExamPaperAsync(submissionId, candidateId, cancellationToken);
+                return Ok(paper);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -204,9 +200,20 @@ namespace Skill_Hub_BackEnd.Controllers
             Guid submissionId,
             CancellationToken cancellationToken)
         {
-            var candidateId = GetCandidateId();
-            var paper = await _assessmentService.StartExamAsync(submissionId, candidateId, cancellationToken);
-            return Ok(paper);
+            try
+            {
+                var candidateId = GetCandidateId();
+                var paper = await _assessmentService.StartExamAsync(submissionId, candidateId, cancellationToken);
+                return Ok(paper);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -234,9 +241,20 @@ namespace Skill_Hub_BackEnd.Controllers
             [FromBody] SubmitAnswersRequestDto answersDto,
             CancellationToken cancellationToken)
         {
-            var candidateId = GetCandidateId();
-            var result = await _assessmentService.SubmitAnswersAsync(submissionId, answersDto, candidateId, cancellationToken);
-            return Ok(result);
+            try
+            {
+                var candidateId = GetCandidateId();
+                var result = await _assessmentService.SubmitAnswersAsync(submissionId, answersDto, candidateId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -248,8 +266,19 @@ namespace Skill_Hub_BackEnd.Controllers
             Guid submissionId,
             CancellationToken cancellationToken)
         {
-            var result = await _assessmentService.GetSubmissionDetailAsync(submissionId, cancellationToken);
-            return Ok(result);
+            try
+            {
+                var result = await _assessmentService.GetSubmissionDetailAsync(submissionId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -266,6 +295,78 @@ namespace Skill_Hub_BackEnd.Controllers
             var deleted = await _assessmentService.DeleteSubmissionAsync(submissionId, hrManagerId, cancellationToken);
             if (!deleted) return NotFound(new { message = "Submission not found." });
             return NoContent();
+        }
+
+        /// <summary>
+        /// HR retrieves all candidate code submissions for a specific job requisition to review.
+        /// </summary>
+        [HttpGet("job/{jobVacancyId:guid}/submissions")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(IReadOnlyList<SubmissionDetailDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetSubmissionsByJob(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            var result = await _assessmentService.GetSubmissionsByJobAsync(jobVacancyId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// HR manually grades candidate code solutions, awards marks, and marks interview selection.
+        /// </summary>
+        [HttpPost("submissions/{submissionId:guid}/review")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(SubmissionDetailDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> ReviewSubmission(
+            Guid submissionId,
+            [FromBody] ManualReviewSubmissionDto dto,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.ReviewSubmissionAsync(submissionId, dto, hrManagerId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Retrieves all technical assessments assigned to the currently authenticated candidate.
+        /// </summary>
+        [HttpGet("candidate/my-assessments")]
+        [ProducesResponseType(typeof(IReadOnlyList<CandidateAssessmentListItemDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetMyAssessments(CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId();
+            if (!candidateId.HasValue || candidateId.Value == Guid.Empty)
+            {
+                return Unauthorized(new { message = "Candidate authentication required." });
+            }
+
+            var assessments = await _assessmentService.GetCandidateAssessmentsAsync(candidateId.Value, cancellationToken);
+            return Ok(assessments);
+        }
+
+        /// <summary>
+        /// Retrieves technical assessments assigned to a specific candidate ID.
+        /// Useful for HR inspection or direct candidate portal routing.
+        /// </summary>
+        [HttpGet("candidate/{candidateId:guid}")]
+        [ProducesResponseType(typeof(IReadOnlyList<CandidateAssessmentListItemDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetCandidateAssessments(
+            Guid candidateId,
+            CancellationToken cancellationToken)
+        {
+            var assessments = await _assessmentService.GetCandidateAssessmentsAsync(candidateId, cancellationToken);
+            return Ok(assessments);
         }
 
         #endregion
@@ -297,9 +398,20 @@ namespace Skill_Hub_BackEnd.Controllers
             Guid jobVacancyId,
             CancellationToken cancellationToken)
         {
-            var hrManagerId = GetCurrentUserId();
-            var result = await _assessmentService.FinalizeTop5Async(jobVacancyId, hrManagerId, cancellationToken);
-            return Ok(result);
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.FinalizeTop5Async(jobVacancyId, hrManagerId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         #endregion

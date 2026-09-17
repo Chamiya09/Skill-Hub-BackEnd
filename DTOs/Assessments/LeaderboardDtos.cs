@@ -18,6 +18,7 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public int ProctorTabSwitches { get; set; }
         public bool IsTop5 { get; set; }
         public bool IsPassed { get; set; }
+        public bool IsSelectedForInterview { get; set; }
         public DateTime? SubmittedAt { get; set; }
     }
 

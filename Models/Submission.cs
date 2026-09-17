@@ -67,6 +67,21 @@ namespace Skill_Hub_BackEnd.Models
         [Column(TypeName = "jsonb")]
         public string? ProctorFlags { get; set; }
 
+        /// <summary>
+        /// Indicates if HR selected this candidate for the technical interview.
+        /// </summary>
+        public bool IsSelectedForInterview { get; set; } = false;
+
+        /// <summary>
+        /// Qualitative feedback or code review notes from HR/Evaluator.
+        /// </summary>
+        public string? ReviewerFeedback { get; set; }
+
+        /// <summary>
+        /// Identifier of the HR Manager or Evaluator who graded the submission.
+        /// </summary>
+        public Guid? ReviewedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

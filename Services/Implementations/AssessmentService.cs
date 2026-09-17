@@ -19,23 +19,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         };
 
         private readonly ApplicationDbContext _dbContext;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _configuration;
         private readonly ILogger<AssessmentService> _logger;
 
         public AssessmentService(
             ApplicationDbContext dbContext,
-            IHttpClientFactory httpClientFactory,
-            IConfiguration configuration,
             ILogger<AssessmentService> logger)
         {
             _dbContext = dbContext;
-            _httpClientFactory = httpClientFactory;
-            _configuration = configuration;
             _logger = logger;
         }
 
-        #region 1. Assessment Creation & HITL AI Question Generation
+        #region 1. Assessment Creation & Management
 
         public async Task<AssessmentResponseDto> CreateAssessmentManualAsync(
             CreateAssessmentManualDto dto,
@@ -56,66 +50,6 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 TimeLimitMinutes = dto.TimeLimitMinutes,
                 CreatedBy = hrManagerId,
                 Status = dto.PublishImmediately ? "Published" : "Draft",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            _dbContext.Assessments.Add(assessment);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            return MapToResponseDto(assessment, 0);
-        }
-
-        public async Task<AssessmentResponseDto> GenerateQuestionsWithAiAsync(
-            GenerateAiQuestionsRequestDto dto,
-            Guid hrManagerId,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(dto);
-
-            // Fetch job vacancy details if available to enrich context
-            var job = await _dbContext.JobVacancies
-                .AsNoTracking()
-                .FirstOrDefaultAsync(j => j.Id == dto.JobVacancyId, cancellationToken);
-
-            var roleTitle = !string.IsNullOrWhiteSpace(dto.RoleTitle)
-                ? dto.RoleTitle
-                : job?.Title ?? "Software Engineer";
-
-            var jobDescription = !string.IsNullOrWhiteSpace(dto.JobDescription)
-                ? dto.JobDescription
-                : job?.Description ?? $"{roleTitle} technical assessment";
-
-            var skills = dto.TargetSkills != null && dto.TargetSkills.Count > 0
-                ? string.Join(", ", dto.TargetSkills)
-                : job?.Department ?? "General Coding";
-
-            var assessmentTitle = !string.IsNullOrWhiteSpace(dto.Title)
-                ? dto.Title.Trim()
-                : $"{roleTitle} Technical Evaluation";
-
-            // Attempt AI Question Generation with LLM (Groq) with fallback
-            var generatedQuestions = await GenerateCodingQuestionsWithLlmAsync(
-                roleTitle,
-                jobDescription,
-                skills,
-                dto.QuestionCount,
-                dto.Difficulty,
-                dto.Language,
-                cancellationToken);
-
-            var questionsJson = JsonSerializer.Serialize(generatedQuestions, JsonOpts);
-
-            var assessment = new Assessment
-            {
-                JobVacancyId = dto.JobVacancyId,
-                Title = assessmentTitle,
-                GeneratedQuestions = questionsJson,
-                FinalQuestions = questionsJson, // HR can review and adjust before publishing
-                PassingThreshold = 60.00m,
-                TimeLimitMinutes = 60,
-                CreatedBy = hrManagerId,
-                Status = "Draft", // HITL requires HR review before publishing
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -345,6 +279,63 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         #region 3. Candidate Examination Flow (Sanitized Questions, Proctoring, Submission)
 
+        public async Task<IReadOnlyList<CandidateAssessmentListItemDto>> GetCandidateAssessmentsAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default)
+        {
+            var submissions = await _dbContext.Submissions
+                .AsNoTracking()
+                .Include(s => s.Assessment)
+                .Where(s => s.CandidateId == candidateId)
+                .OrderByDescending(s => s.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            if (submissions.Count == 0)
+                return Array.Empty<CandidateAssessmentListItemDto>();
+
+            var jobIds = submissions.Select(s => s.JobVacancyId).Distinct().ToList();
+            var jobs = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .Include(j => j.Company)
+                .Where(j => jobIds.Contains(j.Id))
+                .ToDictionaryAsync(j => j.Id, j => j, cancellationToken);
+
+            var result = new List<CandidateAssessmentListItemDto>();
+
+            foreach (var s in submissions)
+            {
+                jobs.TryGetValue(s.JobVacancyId, out var job);
+                var assessment = s.Assessment;
+                var questions = DeserializeQuestions(assessment?.FinalQuestions);
+
+                result.Add(new CandidateAssessmentListItemDto
+                {
+                    SubmissionId = s.Id,
+                    AssessmentId = s.AssessmentId,
+                    AssessmentTitle = assessment?.Title ?? "Technical Assessment",
+                    JobVacancyId = s.JobVacancyId,
+                    JobTitle = job?.Title ?? "Engineering Position",
+                    CompanyName = job?.Company?.CompanyName ?? "Hiring Company",
+                    Department = job?.Department ?? "Engineering",
+                    TimeLimitMinutes = assessment?.TimeLimitMinutes ?? 60,
+                    QuestionCount = questions.Count,
+                    PassingThreshold = assessment?.PassingThreshold ?? 60.00m,
+                    Status = s.Status,
+                    ExamScore = s.ExamScore,
+                    FinalWeightedScore = s.FinalWeightedScore,
+                    IsPassed = (s.Status == "Graded" || s.Status == "Passed") && s.ExamScore >= (assessment?.PassingThreshold ?? 60.00m),
+                    IsSelectedForInterview = s.IsSelectedForInterview,
+                    ReviewerFeedback = s.ReviewerFeedback,
+                    AssignedAt = s.CreatedAt,
+                    StartedAt = s.StartedAt,
+                    SubmittedAt = s.SubmittedAt,
+                    ExpiresAt = s.CreatedAt.AddHours(48)
+                });
+            }
+
+            return result;
+        }
+
         public async Task<StartExamResponseDto> StartExamAsync(
             Guid submissionId,
             Guid? candidateId = null,
@@ -435,35 +426,29 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
                 throw new UnauthorizedAccessException("You are not authorized to submit this exam.");
 
-            var fullQuestions = DeserializeQuestions(submission.Assessment?.FinalQuestions);
-
-            // Grade candidate submitted code
-            var gradedAnswers = GradeCodingAnswers(answersDto.Answers, fullQuestions);
-
-            var totalPointsPossible = fullQuestions.Sum(q => q.Points);
-            var pointsEarned = gradedAnswers.Sum(a => a.Score);
-
-            decimal calculatedExamScore = 0.00m;
-            if (totalPointsPossible > 0)
+            // Preserve candidate typed code solutions for HR manual review without auto-granting scores
+            var submittedAnswers = answersDto.Answers.Select(a => new SubmittedAnswerItemDto
             {
-                calculatedExamScore = Math.Round((pointsEarned / totalPointsPossible) * 100m, 2);
-            }
+                QuestionId = a.QuestionId,
+                SubmittedCode = a.SubmittedCode ?? string.Empty,
+                Language = a.Language ?? "csharp",
+                TestCasesPassed = 0,
+                TotalTestCases = 0,
+                Score = 0
+            }).ToList();
 
-            // Strict user requirement: "for the FinalWeightedScore take only Examscore"
-            submission.ExamScore = calculatedExamScore;
-            submission.FinalWeightedScore = calculatedExamScore;
-
-            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
-            submission.Status = submission.ExamScore >= passingThreshold ? "Passed" : "Rejected";
-
-            submission.Answers = JsonSerializer.Serialize(gradedAnswers, JsonOpts);
+            submission.Answers = JsonSerializer.Serialize(submittedAnswers, JsonOpts);
             submission.SubmittedAt = DateTime.UtcNow;
-            submission.GradedAt = DateTime.UtcNow;
+            submission.Status = "Under_Review";
+            submission.ExamScore = 0.00m;
+            submission.FinalWeightedScore = 0.00m;
+            submission.GradedAt = null;
             submission.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
+            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             return MapToSubmissionDetailDto(submission, candidate?.FullName, candidate?.Email, passingThreshold);
         }
@@ -484,6 +469,87 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var threshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             return MapToSubmissionDetailDto(submission, candidate?.FullName, candidate?.Email, threshold);
+        }
+
+        public async Task<IReadOnlyList<SubmissionDetailDto>> GetSubmissionsByJobAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default)
+        {
+            var submissions = await _dbContext.Submissions
+                .AsNoTracking()
+                .Include(s => s.Assessment)
+                .Where(s => s.JobVacancyId == jobVacancyId && s.Status != "Assigned")
+                .OrderByDescending(s => s.SubmittedAt ?? s.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            if (submissions.Count == 0)
+                return Array.Empty<SubmissionDetailDto>();
+
+            var candidateIds = submissions.Select(s => s.CandidateId).Distinct().ToList();
+            var candidates = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => candidateIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
+
+            var result = new List<SubmissionDetailDto>();
+            foreach (var s in submissions)
+            {
+                candidates.TryGetValue(s.CandidateId, out var candidate);
+                var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
+                result.Add(MapToSubmissionDetailDto(s, candidate?.FullName, candidate?.Email, passingThreshold));
+            }
+
+            return result;
+        }
+
+        public async Task<SubmissionDetailDto> ReviewSubmissionAsync(
+            Guid submissionId,
+            ManualReviewSubmissionDto dto,
+            Guid hrManagerId,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(dto);
+
+            var submission = await _dbContext.Submissions
+                .Include(s => s.Assessment)
+                .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
+
+            if (submission == null)
+                throw new KeyNotFoundException($"Submission '{submissionId}' was not found.");
+
+            var clampedScore = Math.Clamp(dto.ExamScore, 0.00m, 100.00m);
+            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
+
+            submission.ExamScore = clampedScore;
+            submission.FinalWeightedScore = clampedScore;
+            submission.IsSelectedForInterview = dto.IsSelectedForInterview;
+            submission.ReviewerFeedback = dto.ReviewerFeedback?.Trim();
+            submission.ReviewedBy = hrManagerId;
+            submission.Status = clampedScore >= passingThreshold ? "Passed" : "Graded";
+            submission.GradedAt = DateTime.UtcNow;
+            submission.UpdatedAt = DateTime.UtcNow;
+
+            // If question breakdown marks were submitted, update Answers json
+            if (dto.QuestionReviews != null && dto.QuestionReviews.Count > 0)
+            {
+                var existingAnswers = DeserializeAnswers(submission.Answers);
+                foreach (var qr in dto.QuestionReviews)
+                {
+                    var match = existingAnswers.FirstOrDefault(a => string.Equals(a.QuestionId, qr.QuestionId, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        match.Score = qr.PointsEarned;
+                        match.TestCasesPassed = qr.IsCorrect ? (match.TotalTestCases > 0 ? match.TotalTestCases : 1) : 0;
+                    }
+                }
+                submission.Answers = JsonSerializer.Serialize(existingAnswers, JsonOpts);
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
+
+            return MapToSubmissionDetailDto(submission, candidate?.FullName, candidate?.Email, passingThreshold);
         }
 
         #endregion
@@ -539,7 +605,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ApplicationStatus = app?.Status ?? "Shortlisted",
                     ProctorTabSwitches = proctor.TabSwitches,
                     IsTop5 = rank <= 5 && sub.Status == "Passed",
-                    IsPassed = sub.Status == "Passed",
+                    IsPassed = sub.Status == "Passed" || sub.ExamScore >= 60.00m,
+                    IsSelectedForInterview = sub.IsSelectedForInterview,
                     SubmittedAt = sub.SubmittedAt
                 });
 
@@ -631,192 +698,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         #endregion
 
-        #region Helpers: LLM Question Generation & Automated Grading
-
-        private async Task<List<CodingQuestionItemDto>> GenerateCodingQuestionsWithLlmAsync(
-            string roleTitle,
-            string jobDescription,
-            string targetSkills,
-            int questionCount,
-            string difficulty,
-            string language,
-            CancellationToken cancellationToken)
-        {
-            var apiKey = _configuration["Groq:ApiKey"] ?? Environment.GetEnvironmentVariable("GROQ_API_KEY");
-
-            if (!string.IsNullOrWhiteSpace(apiKey))
-            {
-                try
-                {
-                    var client = _httpClientFactory.CreateClient("GroqAiAgent");
-                    var model = _configuration["Groq:Model"] ?? "openai/gpt-oss-20b";
-
-                    var systemPrompt = $$"""
-                        You are a Lead Software Architect designing an adaptive technical coding assessment for candidate evaluation.
-                        Job Role: {{roleTitle}}
-                        Key Skills: {{targetSkills}}
-                        Difficulty: {{difficulty}}
-                        Programming Language: {{language}}
-
-                        Generate exactly {{questionCount}} technical coding problems. For each question, candidate writes code and advances to the next question.
-                        Return ONLY a valid JSON array of question objects without markdown wrapping or commentary:
-                        [
-                          {
-                            "id": "q1",
-                            "title": "Problem Title",
-                            "problemStatement": "Detailed description of the task, inputs, outputs, and constraints.",
-                            "language": "{{language}}",
-                            "difficulty": "{{difficulty}}",
-                            "starterCode": "// Starter function stub with parameter types",
-                            "solutionCode": "// Reference optimal solution",
-                            "sampleTestCases": [
-                              { "input": "sample input", "expectedOutput": "expected output", "isHidden": false }
-                            ],
-                            "hiddenTestCases": [
-                              { "input": "hidden input", "expectedOutput": "expected output", "isHidden": true }
-                            ],
-                            "points": 10,
-                            "order": 1
-                          }
-                        ]
-                        """;
-
-                    var userPrompt = $"Generate {questionCount} coding challenges tailored to the following Job Description:\n\n{jobDescription}";
-
-                    var requestPayload = new
-                    {
-                        model,
-                        messages = new[]
-                        {
-                            new { role = "system", content = systemPrompt },
-                            new { role = "user", content = userPrompt }
-                        },
-                        temperature = 0.2,
-                        max_tokens = 3500
-                    };
-
-                    using var response = await client.PostAsJsonAsync("chat/completions", requestPayload, JsonOpts, cancellationToken);
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var json = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken);
-                        var content = json?.RootElement
-                            .GetProperty("choices")[0]
-                            .GetProperty("message")
-                            .GetProperty("content")
-                            .GetString();
-
-                        if (!string.IsNullOrWhiteSpace(content))
-                        {
-                            var cleaned = CleanJsonString(content);
-                            var parsed = JsonSerializer.Deserialize<List<CodingQuestionItemDto>>(cleaned, JsonOpts);
-                            if (parsed != null && parsed.Count > 0)
-                                return parsed;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("LLM question generation failed, utilizing high-quality domain fallback templates: {Error}", ex.Message);
-                }
-            }
-
-            // Reliable Domain Fallback Questions tailored to the role
-            return GetRoleSpecificFallbackQuestions(roleTitle, targetSkills, language, difficulty, questionCount);
-        }
-
-        private static List<CodingQuestionItemDto> GetRoleSpecificFallbackQuestions(
-            string roleTitle,
-            string targetSkills,
-            string language,
-            string difficulty,
-            int count)
-        {
-            var questions = new List<CodingQuestionItemDto>();
-
-            // Problem 1: Algorithmic Efficiency & Data Manipulation
-            questions.Add(new CodingQuestionItemDto
-            {
-                Id = "q1",
-                Title = "Rate Limiter Token Bucket Algorithm",
-                ProblemStatement = $"In distributed systems, protecting APIs from excessive traffic is critical. Implement a TokenBucketRateLimiter class that handles request tokens with a capacity and refill rate per second. Tailored for {roleTitle}.",
-                Language = language,
-                Difficulty = difficulty,
-                StarterCode = language.ToLower() switch
-                {
-                    "python" => "class TokenBucket:\n    def __init__(self, capacity: int, refill_rate: float):\n        pass\n\n    def allow_request(self, tokens: int = 1) -> bool:\n        pass\n",
-                    "javascript" => "class TokenBucket {\n    constructor(capacity, refillRate) {\n    }\n\n    allowRequest(tokens = 1) {\n        return false;\n    }\n}\n",
-                    _ => "public class TokenBucketRateLimiter\n{\n    public TokenBucketRateLimiter(int capacity, double refillRatePerSecond)\n    {\n    }\n\n    public bool AllowRequest(int tokens = 1)\n    {\n        return false;\n    }\n}"
-                },
-                SampleTestCases = new List<TestCaseDto>
-                {
-                    new() { Input = "capacity=5, refill=1/s, request 3 tokens", ExpectedOutput = "true", IsHidden = false },
-                    new() { Input = "capacity=5, refill=1/s, request 4 tokens immediately after", ExpectedOutput = "false", IsHidden = false }
-                },
-                HiddenTestCases = new List<TestCaseDto>
-                {
-                    new() { Input = "capacity=10, burst of 10", ExpectedOutput = "true", IsHidden = true },
-                    new() { Input = "capacity=10, 11th token in same second", ExpectedOutput = "false", IsHidden = true }
-                },
-                Points = 10,
-                Order = 1
-            });
-
-            // Problem 2: Data Normalization & Cache Key Generator
-            if (count >= 2)
-            {
-                questions.Add(new CodingQuestionItemDto
-                {
-                    Id = "q2",
-                    Title = "Structured CV Skill Matcher & Normalizer",
-                    ProblemStatement = "Given an array of candidate skills and a target job requirement list, return a normalized match score percentage (0-100) taking into account synonym matching (e.g. 'React.js' == 'React', 'PostgreSQL' == 'Postgres').",
-                    Language = language,
-                    Difficulty = difficulty,
-                    StarterCode = language.ToLower() switch
-                    {
-                        "python" => "def calculate_skill_match(candidate_skills: list[str], required_skills: list[str]) -> int:\n    # Write your solution here\n    return 0\n",
-                        "javascript" => "function calculateSkillMatch(candidateSkills, requiredSkills) {\n    // Write your solution here\n    return 0;\n}\n",
-                        _ => "public class SkillMatcher\n{\n    public static int CalculateSkillMatch(List<string> candidateSkills, List<string> requiredSkills)\n    {\n        // Write your solution here\n        return 0;\n    }\n}"
-                    },
-                    SampleTestCases = new List<TestCaseDto>
-                    {
-                        new() { Input = "candidate=['React', 'C#'], required=['React', 'C#', 'Docker']", ExpectedOutput = "67", IsHidden = false }
-                    },
-                    HiddenTestCases = new List<TestCaseDto>
-                    {
-                        new() { Input = "candidate=['PostgreSQL', '.NET Core'], required=['Postgres', '.NET']", ExpectedOutput = "100", IsHidden = true }
-                    },
-                    Points = 10,
-                    Order = 2
-                });
-            }
-
-            // Problem 3: Concurrency / Data Stream Aggregation
-            if (count >= 3)
-            {
-                questions.Add(new CodingQuestionItemDto
-                {
-                    Id = "q3",
-                    Title = "Candidate Leaderboard Top-K Extraction",
-                    ProblemStatement = "Process a high-throughput stream of candidate evaluation scores and maintain the Top-5 ranked candidates with O(K) space complexity without sorting the entire dataset each time.",
-                    Language = language,
-                    Difficulty = difficulty,
-                    StarterCode = language.ToLower() switch
-                    {
-                        "python" => "def get_top_k_candidates(scores: list[dict], k: int = 5) -> list[str]:\n    # Return list of top candidate IDs\n    return []\n",
-                        "javascript" => "function getTopKCandidates(scores, k = 5) {\n    return [];\n}\n",
-                        _ => "public class TopKLeaderboard\n{\n    public static List<string> GetTopKCandidates(List<(string Id, decimal Score)> scores, int k = 5)\n    {\n        return new List<string>();\n    }\n}"
-                    },
-                    SampleTestCases = new List<TestCaseDto>
-                    {
-                        new() { Input = "scores=[(A:90), (B:95), (C:80), (D:98), (E:88), (F:92)], k=5", ExpectedOutput = "[D, B, F, A, E]", IsHidden = false }
-                    },
-                    Points = 10,
-                    Order = 3
-                });
-            }
-
-            return questions.Take(count).ToList();
-        }
+        #region Helpers: Automated Grading & Serialization
 
         private static List<SubmittedAnswerItemDto> GradeCodingAnswers(
             List<SubmittedAnswerItemDto> answers,
@@ -951,8 +833,23 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 SubmittedAt = s.SubmittedAt,
                 GradedAt = s.GradedAt,
                 Answers = answers,
-                ProctorSummary = DeserializeProctorSummary(s.ProctorFlags)
+                ProctorSummary = DeserializeProctorSummary(s.ProctorFlags),
+                IsSelectedForInterview = s.IsSelectedForInterview,
+                ReviewerFeedback = s.ReviewerFeedback
             };
+        }
+
+        private static List<SubmittedAnswerItemDto> DeserializeAnswers(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new();
+            try
+            {
+                return JsonSerializer.Deserialize<List<SubmittedAnswerItemDto>>(json, JsonOpts) ?? new();
+            }
+            catch
+            {
+                return new();
+            }
         }
 
         private static List<CodingQuestionItemDto> DeserializeQuestions(string? json)
@@ -979,15 +876,6 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             {
                 return new();
             }
-        }
-
-        private static string CleanJsonString(string raw)
-        {
-            var cleaned = raw.Trim();
-            if (cleaned.StartsWith("```json")) cleaned = cleaned[7..];
-            else if (cleaned.StartsWith("```")) cleaned = cleaned[3..];
-            if (cleaned.EndsWith("```")) cleaned = cleaned[..^3];
-            return cleaned.Trim();
         }
 
         #endregion

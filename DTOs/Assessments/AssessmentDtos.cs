@@ -24,27 +24,6 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public bool PublishImmediately { get; set; } = true;
     }
 
-    public sealed class GenerateAiQuestionsRequestDto
-    {
-        [Required]
-        public Guid JobVacancyId { get; set; }
-
-        public string? Title { get; set; }
-
-        public string? RoleTitle { get; set; }
-
-        public string? JobDescription { get; set; }
-
-        public List<string>? TargetSkills { get; set; }
-
-        [Range(1, 10)]
-        public int QuestionCount { get; set; } = 3;
-
-        public string Difficulty { get; set; } = "Medium";
-
-        public string Language { get; set; } = "csharp";
-    }
-
     public sealed class UpdateAssessmentDto
     {
         [Required]

@@ -118,6 +118,48 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public DateTime? GradedAt { get; set; }
         public List<SubmittedAnswerItemDto> Answers { get; set; } = new();
         public ProctorSummaryDto ProctorSummary { get; set; } = new();
+        public bool IsSelectedForInterview { get; set; } = false;
+        public string? ReviewerFeedback { get; set; }
+    }
+
+    public sealed class CandidateAssessmentListItemDto
+    {
+        public Guid SubmissionId { get; set; }
+        public Guid AssessmentId { get; set; }
+        public string AssessmentTitle { get; set; } = string.Empty;
+        public Guid JobVacancyId { get; set; }
+        public string JobTitle { get; set; } = string.Empty;
+        public string CompanyName { get; set; } = string.Empty;
+        public string Department { get; set; } = string.Empty;
+        public int TimeLimitMinutes { get; set; }
+        public int QuestionCount { get; set; }
+        public decimal PassingThreshold { get; set; }
+        public string Status { get; set; } = "Assigned";
+        public decimal ExamScore { get; set; }
+        public decimal FinalWeightedScore { get; set; }
+        public bool IsPassed { get; set; }
+        public bool IsSelectedForInterview { get; set; } = false;
+        public string? ReviewerFeedback { get; set; }
+        public DateTime AssignedAt { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public DateTime? SubmittedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+    }
+
+    public sealed class QuestionReviewItemDto
+    {
+        public string QuestionId { get; set; } = string.Empty;
+        public bool IsCorrect { get; set; }
+        public decimal PointsEarned { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public sealed class ManualReviewSubmissionDto
+    {
+        public decimal ExamScore { get; set; }
+        public bool IsSelectedForInterview { get; set; }
+        public string? ReviewerFeedback { get; set; }
+        public List<QuestionReviewItemDto> QuestionReviews { get; set; } = new();
     }
 }
 
