@@ -37,6 +37,7 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         public int TotalExperienceYears { get; set; }
         public string? HighestEducation { get; set; }
         public string? CurrentCompany { get; set; }
+        public int? AiMatchScore { get; set; }
     }
 
     public class CandidateApplicationResponseDto

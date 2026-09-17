@@ -70,6 +70,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
 builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
+builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
@@ -476,9 +477,17 @@ using (var scope = app.Services.CreateScope())
                 ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
                 ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
                 ""MatchPercentage"" integer NOT NULL CHECK (""MatchPercentage"" BETWEEN 0 AND 100),
+                ""BreakdownJson"" text,
+                ""StrengthsJson"" text,
+                ""MissingSkillsJson"" text,
+                ""Recommendation"" text,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 CONSTRAINT ""UQ_AiMatchResults_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
             );",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""BreakdownJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""StrengthsJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""MissingSkillsJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""Recommendation"" text;",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AiMatchResults_CandidateId_JobId"" ON public.""AiMatchResults"" (""CandidateId"", ""JobId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");"
         };

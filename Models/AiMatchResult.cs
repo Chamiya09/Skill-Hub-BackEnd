@@ -23,6 +23,11 @@ namespace Skill_Hub_BackEnd.Models
         [Range(0, 100)]
         public int MatchPercentage { get; set; }
 
+        public string? BreakdownJson { get; set; }
+        public string? StrengthsJson { get; set; }
+        public string? MissingSkillsJson { get; set; }
+        public string? Recommendation { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }
