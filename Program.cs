@@ -78,6 +78,7 @@ builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
 builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
+builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
@@ -507,7 +508,50 @@ using (var scope = app.Services.CreateScope())
                 CONSTRAINT ""UQ_SavedJobs_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
             );",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SavedJobs_CandidateId_JobId"" ON public.""SavedJobs"" (""CandidateId"", ""JobId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");",
+
+            // 12. Technical Assessments (HITL Question Bank & Published Exam Templates)
+            @"CREATE TABLE IF NOT EXISTS public.""Assessments"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""JobVacancyId"" uuid NOT NULL,
+                ""Title"" character varying(250) NOT NULL,
+                ""GeneratedQuestions"" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                ""FinalQuestions"" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                ""PassingThreshold"" numeric(5,2) NOT NULL DEFAULT 60.00,
+                ""TimeLimitMinutes"" integer NOT NULL DEFAULT 60,
+                ""CreatedBy"" uuid NOT NULL,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Draft',
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_JobVacancyId"" ON public.""Assessments"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_CreatedBy"" ON public.""Assessments"" (""CreatedBy"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_Status"" ON public.""Assessments"" (""Status"");",
+
+            // 13. Candidate Exam Submissions & Proctoring
+            @"CREATE TABLE IF NOT EXISTS public.""Submissions"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""AssessmentId"" uuid NOT NULL REFERENCES public.""Assessments"" (""Id"") ON DELETE CASCADE,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""ApplicationId"" uuid NOT NULL REFERENCES public.""JobApplications"" (""Id"") ON DELETE CASCADE,
+                ""JobVacancyId"" uuid NOT NULL,
+                ""Answers"" jsonb,
+                ""ExamScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""CvScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""FinalWeightedScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Assigned',
+                ""StartedAt"" timestamp with time zone,
+                ""SubmittedAt"" timestamp with time zone,
+                ""GradedAt"" timestamp with time zone,
+                ""ProctorFlags"" jsonb,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_AssessmentId"" ON public.""Submissions"" (""AssessmentId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_CandidateId"" ON public.""Submissions"" (""CandidateId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_ApplicationId"" ON public.""Submissions"" (""ApplicationId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_JobVacancyId"" ON public.""Submissions"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_Status"" ON public.""Submissions"" (""Status"");"
         };
 
         foreach (var ddl in ddlStatements)
