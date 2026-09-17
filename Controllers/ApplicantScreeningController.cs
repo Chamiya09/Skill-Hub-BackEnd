@@ -118,6 +118,41 @@ namespace Skill_Hub_BackEnd.Controllers
             });
         }
 
+        [HttpPost("remove-from-shortlist")]
+        public async Task<IActionResult> RemoveFromShortlist(
+            Guid jobId,
+            [FromBody] List<Guid> candidateIds,
+            CancellationToken cancellationToken)
+        {
+            if (candidateIds.Count == 0) return BadRequest(new { message = "Select at least one candidate." });
+            var companyId = GetCurrentCompanyId();
+            if (companyId is null) return Unauthorized(new { message = "A company identifier is required." });
+            if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
+                job => job.Id == jobId && job.CompanyId == companyId.Value,
+                cancellationToken))
+                return NotFound(new { message = "Job not found or access denied." });
+
+            var distinctIds = candidateIds.Distinct().ToList();
+            var applications = await _dbContext.JobApplications
+                .Where(application => application.JobId == jobId &&
+                    distinctIds.Contains(application.CandidateId) && application.Status == "Shortlisted")
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+            foreach (var application in applications)
+            {
+                application.Status = "Applied";
+                application.UpdatedAt = now;
+            }
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return Ok(new
+            {
+                message = $"{applications.Count} candidate(s) removed from Shortlist.",
+                updatedCount = applications.Count,
+            });
+        }
+
         /// <summary>
         /// Returns all shortlisted applicants for a job, with full profile data for the Hiring Pipeline board.
         /// Endpoint: GET /api/jobs/{jobId}/shortlisted
