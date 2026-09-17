@@ -30,4 +30,24 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         /// </summary>
         public ScoreBreakdown? ScoreBreakdown { get; set; }
     }
+
+    /// <summary>
+    /// Returned by GET /api/jobs/{jobId}/shortlisted.
+    /// Contains the rich profile data required by the Hiring Pipeline board.
+    /// </summary>
+    public sealed class ShortlistedApplicantDto
+    {
+        public Guid ApplicationId { get; set; }
+        public Guid CandidateId { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Headline { get; set; }
+        public string Location { get; set; } = string.Empty;
+        public string? AvatarUrl { get; set; }
+        public List<string> Skills { get; set; } = new();
+        public DateTime AppliedDate { get; set; }
+        public DateTime? ShortlistedAt { get; set; }
+        public int? AiMatchScore { get; set; }
+    }
 }

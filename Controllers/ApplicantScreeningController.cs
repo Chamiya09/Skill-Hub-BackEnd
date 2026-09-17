@@ -30,6 +30,7 @@ namespace Skill_Hub_BackEnd.Controllers
         [ProducesResponseType(typeof(IReadOnlyList<ScreenedApplicantDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> RunAiScreen(
             Guid jobId,
+            [FromQuery] bool forceRefresh = false,
             CancellationToken cancellationToken = default)
         {
             var companyId = GetCurrentCompanyId();
@@ -39,7 +40,7 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 return Ok(await _screeningService.FetchAndRankApplicantsAsync(
-                    jobId, companyId.Value, forceRefresh: true, cancellationToken));
+                    jobId, companyId.Value, forceRefresh, cancellationToken));
             }
             catch (KeyNotFoundException exception)
             {
@@ -115,6 +116,85 @@ namespace Skill_Hub_BackEnd.Controllers
                 message = $"{applications.Count} candidate(s) moved to Shortlisted.",
                 updatedCount = applications.Count,
             });
+        }
+
+        /// <summary>
+        /// Returns all shortlisted applicants for a job, with full profile data for the Hiring Pipeline board.
+        /// Endpoint: GET /api/jobs/{jobId}/shortlisted
+        /// </summary>
+        [HttpGet("shortlisted")]
+        [ProducesResponseType(typeof(IReadOnlyList<ShortlistedApplicantDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetShortlisted(Guid jobId, CancellationToken cancellationToken)
+        {
+            var companyId = GetCurrentCompanyId();
+            if (companyId is null)
+                return Unauthorized(new { message = "A company identifier is required." });
+
+            if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
+                job => job.Id == jobId && job.CompanyId == companyId.Value, cancellationToken))
+                return NotFound(new { message = "Job not found or access denied." });
+
+            var applications = await _dbContext.JobApplications
+                .AsNoTracking()
+                .Where(a => a.JobId == jobId && a.Status == "Shortlisted")
+                .Include(a => a.Candidate)
+                .OrderByDescending(a => a.UpdatedAt)
+                .ToListAsync(cancellationToken);
+
+            var candidateIds = applications.Select(a => a.CandidateId).Distinct().ToList();
+
+            var aiScores = await _dbContext.AiMatchResults
+                .AsNoTracking()
+                .Where(r => r.JobId == jobId && candidateIds.Contains(r.CandidateId))
+                .ToDictionaryAsync(r => r.CandidateId, r => r.MatchPercentage, cancellationToken);
+
+            var skillsMap = await _dbContext.CandidateSkills
+                .AsNoTracking()
+                .Where(s => candidateIds.Contains(s.UserId))
+                .GroupBy(s => s.UserId)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(s => s.SkillName).ToList(), cancellationToken);
+
+            var experienceMap = await _dbContext.CandidateExperiences
+                .AsNoTracking()
+                .Where(e => candidateIds.Contains(e.UserId))
+                .GroupBy(e => e.UserId)
+                .ToDictionaryAsync(
+                    g => g.Key,
+                    g => g.OrderByDescending(e => e.IsCurrent).FirstOrDefault(),
+                    cancellationToken);
+
+            var result = applications.Select(app =>
+            {
+                var c = app.Candidate;
+                experienceMap.TryGetValue(app.CandidateId, out var topExp);
+
+                var headline = c?.Headline;
+                if (string.IsNullOrWhiteSpace(headline) && topExp != null)
+                    headline = string.IsNullOrWhiteSpace(topExp.Company)
+                        ? topExp.Title
+                        : $"{topExp.Title} at {topExp.Company}";
+                headline ??= "Candidate Profile";
+
+                return new ShortlistedApplicantDto
+                {
+                    ApplicationId = app.Id,
+                    CandidateId = app.CandidateId,
+                    FullName = !string.IsNullOrWhiteSpace(c?.FullName) ? c!.FullName
+                             : !string.IsNullOrWhiteSpace(c?.Email) ? c.Email
+                             : "Candidate",
+                    Email = c?.Email ?? string.Empty,
+                    Phone = c?.Phone,
+                    Headline = headline,
+                    Location = c?.Location ?? topExp?.Location ?? "Location unspecified",
+                    AvatarUrl = c?.AvatarUrl,
+                    Skills = skillsMap.TryGetValue(app.CandidateId, out var skills) ? skills : new(),
+                    AppliedDate = app.AppliedDate,
+                    ShortlistedAt = app.UpdatedAt,
+                    AiMatchScore = aiScores.TryGetValue(app.CandidateId, out var score) ? score : null,
+                };
+            }).ToList();
+
+            return Ok(result);
         }
 
         private Guid? GetCurrentCompanyId()
