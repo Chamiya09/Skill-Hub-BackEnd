@@ -15,6 +15,13 @@ AppContext.SetSwitch("System.Net.DisableIPv6", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Avoid the Windows Event Log provider in local/dev hosting. It requires an
+// elevated, pre-registered event source and can otherwise crash the process
+// while attempting to report an unrelated startup error.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // Local development convenience: the Python worker already owns the repository's
 // untracked .env file. ASP.NET does not load dotenv files automatically, so import
 // only the two Groq settings when they were not supplied by user-secrets, process

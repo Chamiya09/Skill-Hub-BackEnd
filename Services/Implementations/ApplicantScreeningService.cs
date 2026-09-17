@@ -30,6 +30,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         public async Task<IReadOnlyList<ScreenedApplicantDto>> FetchAndRankApplicantsAsync(
             Guid jobId,
             Guid companyId,
+            bool forceRefresh = false,
             CancellationToken cancellationToken = default)
         {
             var job = await _dbContext.JobVacancies
@@ -51,10 +52,35 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .ToListAsync(cancellationToken);
 
             var candidateIds = applications.Select(application => application.CandidateId).ToList();
-            var cachedScores = await _dbContext.AiMatchResults
+
+            // ── forceRefresh: wipe all cached results so every candidate is re-evaluated ──
+            if (forceRefresh)
+            {
+                var staleResults = await _dbContext.AiMatchResults
+                    .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
+                    .ToListAsync(cancellationToken);
+
+                if (staleResults.Count > 0)
+                {
+                    _dbContext.AiMatchResults.RemoveRange(staleResults);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation(
+                        "forceRefresh=true: deleted {Count} cached AI result(s) for job {JobId}.",
+                        staleResults.Count, jobId);
+                }
+            }
+
+            // ── Load remaining cached results (empty after forceRefresh) ──
+            var cachedResults = await _dbContext.AiMatchResults
                 .AsNoTracking()
                 .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
-                .ToDictionaryAsync(result => result.CandidateId, result => result.MatchPercentage, cancellationToken);
+                .ToListAsync(cancellationToken);
+
+            // Build lookup dictionaries for score and breakdown
+            var cachedScores = cachedResults.ToDictionary(r => r.CandidateId, r => r.MatchPercentage);
+            var cachedBreakdowns = cachedResults
+                .Where(r => r.BreakdownJson is not null)
+                .ToDictionary(r => r.CandidateId, r => ParseBreakdown(r.BreakdownJson!));
 
             var pending = applications
                 .Where(application => application.Candidate is not null &&
@@ -73,9 +99,19 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     await gate.WaitAsync(cancellationToken);
                     try
                     {
+                        _logger.LogInformation(
+                            "Sending Candidate {CandidateId} to Python AI for evaluation at {BaseAddress}...",
+                            item.CandidateId,
+                            client.BaseAddress);
+
                         using var response = await client.PostAsJsonAsync(
                             "api/ai/analyze-match", item.Payload, JsonOptions, cancellationToken);
                         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                        _logger.LogInformation(
+                            "Python AI responded for Candidate {CandidateId} with HTTP {StatusCode}.",
+                            item.CandidateId,
+                            (int)response.StatusCode);
                         if (!response.IsSuccessStatusCode)
                         {
                             _logger.LogError(
@@ -100,19 +136,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 foreach (var evaluation in evaluations)
                 {
                     var score = Math.Clamp(evaluation.Result.MatchPercentage, 0, 100);
+                    var breakdownJson = evaluation.Result.Breakdown?.GetRawText();
+
                     _dbContext.AiMatchResults.Add(new AiMatchResult
                     {
                         CandidateId = evaluation.CandidateId,
                         JobId = jobId,
                         MatchPercentage = score,
-                        BreakdownJson = evaluation.Result.Breakdown?.GetRawText(),
+                        BreakdownJson = breakdownJson,
                         StrengthsJson = JsonSerializer.Serialize(
                             evaluation.Result.Strengths ?? new(), JsonOptions),
                         MissingSkillsJson = JsonSerializer.Serialize(
                             evaluation.Result.MissingSkills ?? new(), JsonOptions),
                         Recommendation = evaluation.Result.Recommendation,
                     });
+
                     cachedScores[evaluation.CandidateId] = score;
+                    if (breakdownJson is not null)
+                        cachedBreakdowns[evaluation.CandidateId] = ParseBreakdown(breakdownJson);
                 }
                 await _dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -120,10 +161,28 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             return applications
                 .Select(application => MapApplicant(
                     application,
-                    cachedScores.TryGetValue(application.CandidateId, out var score) ? score : null))
+                    cachedScores.TryGetValue(application.CandidateId, out var score) ? score : null,
+                    cachedBreakdowns.TryGetValue(application.CandidateId, out var breakdown) ? breakdown : null))
                 .OrderByDescending(candidate => candidate.AiMatchScore ?? -1)
                 .ThenBy(candidate => candidate.FullName)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Safely deserializes the stored JSON breakdown into a <see cref="ScoreBreakdown"/>.
+        /// Returns null if the JSON is missing or malformed so a failed parse never crashes a response.
+        /// </summary>
+        private ScoreBreakdown? ParseBreakdown(string breakdownJson)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<ScoreBreakdown>(breakdownJson, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not deserialize BreakdownJson: {Json}", breakdownJson);
+                return null;
+            }
         }
 
         private static object BuildPayload(User candidate, JobVacancy job) => new
@@ -159,7 +218,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             },
         };
 
-        private static ScreenedApplicantDto MapApplicant(JobApplication application, int? score)
+        private static ScreenedApplicantDto MapApplicant(
+            JobApplication application,
+            int? score,
+            ScoreBreakdown? breakdown)
         {
             var candidate = application.Candidate;
             return new ScreenedApplicantDto
@@ -173,6 +235,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 AppliedDate = application.AppliedDate,
                 Status = application.Status,
                 AiMatchScore = score,
+                ScoreBreakdown = breakdown,
             };
         }
 

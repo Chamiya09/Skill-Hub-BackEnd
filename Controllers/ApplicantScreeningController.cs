@@ -28,7 +28,9 @@ namespace Skill_Hub_BackEnd.Controllers
 
         [HttpPost("run-ai-screen")]
         [ProducesResponseType(typeof(IReadOnlyList<ScreenedApplicantDto>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> RunAiScreen(Guid jobId, CancellationToken cancellationToken)
+        public async Task<IActionResult> RunAiScreen(
+            Guid jobId,
+            CancellationToken cancellationToken = default)
         {
             var companyId = GetCurrentCompanyId();
             if (companyId is null)
@@ -37,7 +39,7 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 return Ok(await _screeningService.FetchAndRankApplicantsAsync(
-                    jobId, companyId.Value, cancellationToken));
+                    jobId, companyId.Value, forceRefresh: true, cancellationToken));
             }
             catch (KeyNotFoundException exception)
             {
@@ -53,7 +55,32 @@ namespace Skill_Hub_BackEnd.Controllers
         [HttpGet("applicants")]
         [ProducesResponseType(typeof(IReadOnlyList<ScreenedApplicantDto>), StatusCodes.Status200OK)]
         public Task<IActionResult> GetRankedApplicants(Guid jobId, CancellationToken cancellationToken) =>
-            RunAiScreen(jobId, cancellationToken);
+            GetRankedApplicantsCore(jobId, cancellationToken);
+
+        private async Task<IActionResult> GetRankedApplicantsCore(
+            Guid jobId,
+            CancellationToken cancellationToken)
+        {
+            var companyId = GetCurrentCompanyId();
+            if (companyId is null)
+                return Unauthorized(new { message = "A company identifier is required." });
+
+            try
+            {
+                return Ok(await _screeningService.FetchAndRankApplicantsAsync(
+                    jobId, companyId.Value, forceRefresh: false, cancellationToken));
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException or JsonException or TaskCanceledException)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { message = "AI screening is temporarily unavailable." });
+            }
+        }
 
         [HttpPost("move-to-shortlist")]
         public async Task<IActionResult> MoveToShortlist(
