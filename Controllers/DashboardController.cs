@@ -52,6 +52,73 @@ namespace Skill_Hub_BackEnd.Controllers
             var draftCount = companyJobs.Count(j => string.Equals(j.Status, "Draft", StringComparison.OrdinalIgnoreCase));
             var closedCount = companyJobs.Count(j => string.Equals(j.Status, "Closed", StringComparison.OrdinalIgnoreCase));
             var totalCount = companyJobs.Count;
+            var companyJobIds = companyJobs.Select(job => job.Id).ToList();
+
+            var applications = await _dbContext.JobApplications
+                .AsNoTracking()
+                .Where(application => companyJobIds.Contains(application.JobId))
+                .ToListAsync();
+
+            var aiResults = await _dbContext.AiMatchResults
+                .AsNoTracking()
+                .Where(result => companyJobIds.Contains(result.JobId))
+                .ToListAsync();
+
+            var weekStart = DateTime.UtcNow.Date.AddDays(-6);
+            var totalCandidates = applications.Select(application => application.CandidateId).Distinct().Count();
+            var candidatesThisWeek = applications
+                .Where(application => application.AppliedDate >= weekStart)
+                .Select(application => application.CandidateId)
+                .Distinct()
+                .Count();
+            var shortlistedCount = applications.Count(application =>
+                application.Status.Contains("Shortlist", StringComparison.OrdinalIgnoreCase));
+            var pendingInterviews = applications.Count(application =>
+                application.Status.Contains("Interview", StringComparison.OrdinalIgnoreCase));
+            var aiShortlisted = aiResults.Count(result => result.MatchPercentage >= 80);
+            var evaluatedPairs = aiResults
+                .Select(result => (result.CandidateId, result.JobId))
+                .ToHashSet();
+            var pendingAiEvaluations = applications.Count(application =>
+                !evaluatedPairs.Contains((application.CandidateId, application.JobId)));
+
+            var topTalentMatches = await _dbContext.AiMatchResults
+                .AsNoTracking()
+                .Where(result => companyJobIds.Contains(result.JobId))
+                .OrderByDescending(result => result.MatchPercentage)
+                .ThenByDescending(result => result.CreatedAt)
+                .Take(4)
+                .Select(result => new TopTalentMatchDto
+                {
+                    CandidateId = result.CandidateId,
+                    CandidateName = result.Candidate != null ? result.Candidate.FullName : "Candidate",
+                    Headline = result.Candidate != null ? result.Candidate.Headline : null,
+                    JobId = result.JobId,
+                    JobTitle = result.Job != null ? result.Job.Title : "Vacancy",
+                    MatchPercentage = result.MatchPercentage,
+                    EvaluatedAt = result.CreatedAt,
+                })
+                .ToListAsync();
+
+            var vacancyMetrics = companyJobs
+                .Where(job => string.Equals(job.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(job => job.CreatedAt)
+                .Take(5)
+                .Select(job => new OverviewVacancyDto
+                {
+                    JobId = job.Id,
+                    Title = job.Title,
+                    Department = job.Department,
+                    Status = job.Status,
+                    ApplicantsCount = applications.Count(application => application.JobId == job.Id),
+                    AiScreenedCount = aiResults.Count(result => result.JobId == job.Id),
+                })
+                .ToList();
+
+            var latestAiResult = aiResults.OrderByDescending(result => result.CreatedAt).FirstOrDefault();
+            var latestAiJob = latestAiResult == null
+                ? null
+                : companyJobs.FirstOrDefault(job => job.Id == latestAiResult.JobId);
 
             var departmentsCount = companyJobs
                 .Select(j => j.Department.Trim())
@@ -88,6 +155,22 @@ namespace Skill_Hub_BackEnd.Controllers
                 ClosedVacanciesCount = closedCount,
                 TotalVacanciesCount = totalCount,
                 TotalDepartmentsCount = departmentsCount,
+                TotalCandidatesCount = totalCandidates,
+                CandidatesThisWeekCount = candidatesThisWeek,
+                AiScreenedCount = aiResults.Count,
+                AiShortlistedCount = aiShortlisted,
+                ShortlistedCount = shortlistedCount,
+                PendingInterviewsCount = pendingInterviews,
+                PendingAiEvaluationsCount = pendingAiEvaluations,
+                TopTalentMatches = topTalentMatches,
+                VacancyMetrics = vacancyMetrics,
+                RecentAiActivity = latestAiResult == null ? null : new RecentAiActivityDto
+                {
+                    JobId = latestAiResult.JobId,
+                    JobTitle = latestAiJob?.Title ?? "Vacancy",
+                    MatchPercentage = latestAiResult.MatchPercentage,
+                    OccurredAt = latestAiResult.CreatedAt,
+                },
                 RecentVacancies = recentJobs
             };
 
