@@ -15,6 +15,39 @@ AppContext.SetSwitch("System.Net.DisableIPv6", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Local development convenience: the Python worker already owns the repository's
+// untracked .env file. ASP.NET does not load dotenv files automatically, so import
+// only the two Groq settings when they were not supplied by user-secrets, process
+// environment variables, or deployment configuration. Never commit the .env file.
+if (builder.Environment.IsDevelopment() &&
+    string.IsNullOrWhiteSpace(builder.Configuration["Groq:ApiKey"]) &&
+    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GROQ_API_KEY")))
+{
+    var groqEnvPath = Path.GetFullPath(Path.Combine(
+        builder.Environment.ContentRootPath,
+        "..",
+        "Skill-Hub-AI-Agent",
+        ".env"));
+
+    if (File.Exists(groqEnvPath))
+    {
+        foreach (var rawLine in File.ReadLines(groqEnvPath))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim().Trim('"', '\'');
+            if (key == "GROQ_API_KEY") builder.Configuration["Groq:ApiKey"] = value;
+            if (key == "GROQ_MODEL") builder.Configuration["Groq:Model"] = value;
+            if (key == "GROQ_FALLBACK_MODEL") builder.Configuration["Groq:FallbackModel"] = value;
+        }
+    }
+}
+
 // ==========================================
 // 1. DATABASE & EF CORE (POSTGRESQL / NEONDB)
 // ==========================================
@@ -34,6 +67,39 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
+builder.Services.AddScoped<IMatchService, MatchService>();
+builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
+
+var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
+    ?? throw new InvalidOperationException(
+        "Missing required configuration value: AiAgent:BaseUrl");
+
+builder.Services.AddHttpClient(LangGraphAiAgentService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    // Keep this below the frontend's 120-second ceiling so the API can return a
+    // controlled error, while allowing the evaluator and policy pass to finish.
+    client.Timeout = TimeSpan.FromSeconds(110);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
+builder.Services.AddHttpClient(GroqAiAgentService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri("https://api.groq.com/openai/v1/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(110);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
+builder.Services.AddHttpClient(JobRecommendationService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(90);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
 
 // ==========================================
 // 3. CONTROLLERS & JSON SERIALIZATION
@@ -242,16 +308,60 @@ using (var scope = app.Services.CreateScope())
             // 2. Users Table
             @"CREATE TABLE IF NOT EXISTS public.""Users"" (
                 ""Id"" uuid NOT NULL PRIMARY KEY,
-                ""CompanyId"" uuid NOT NULL REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""CompanyId"" uuid REFERENCES public.""Companies"" (""Id"") ON DELETE CASCADE,
+                ""FirstName"" character varying(100),
+                ""LastName"" character varying(100),
                 ""FullName"" character varying(150) NOT NULL,
                 ""Email"" character varying(255) NOT NULL,
                 ""PasswordHash"" text NOT NULL,
-                ""Role"" character varying(50) NOT NULL,
+                ""Role"" character varying(50) NOT NULL DEFAULT 'CANDIDATE',
+                ""Headline"" character varying(200),
+                ""Phone"" character varying(50),
+                ""Location"" character varying(200),
+                ""AvatarUrl"" character varying(500),
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
 
-            // 2b. Indexes on Users
+            // 2b. Ensure Candidate Columns & Nullable CompanyId on existing Users table
+            @"DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'CompanyId' AND is_nullable = 'NO') THEN
+                    ALTER TABLE public.""Users"" ALTER COLUMN ""CompanyId"" DROP NOT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'FirstName') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""FirstName"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'LastName') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""LastName"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Headline') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Headline"" character varying(200);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Phone') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Phone"" character varying(50);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Location') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Location"" character varying(200);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Experience') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Experience"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Availability') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Availability"" character varying(100);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'AvatarUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""AvatarUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'About') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""About"" text;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'KeyHighlights') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""KeyHighlights"" text;
+                END IF;
+            END $$;",
+
+            // 2c. Indexes on Users
             @"CREATE INDEX IF NOT EXISTS ""IX_Users_CompanyId"" ON public.""Users"" (""CompanyId"");",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Users_Email"" ON public.""Users"" (""Email"");",
 
@@ -275,7 +385,102 @@ using (var scope = app.Services.CreateScope())
             // 3b. Indexes on JobVacancies
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CompanyId"" ON public.""JobVacancies"" (""CompanyId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Status"" ON public.""JobVacancies"" (""Status"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");",
+
+            // 4. CandidateExperiences Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateExperiences"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Title"" character varying(200) NOT NULL,
+                ""Company"" character varying(200) NOT NULL,
+                ""Location"" character varying(150),
+                ""StartDate"" character varying(50) NOT NULL,
+                ""EndDate"" character varying(50),
+                ""IsCurrent"" boolean NOT NULL DEFAULT false,
+                ""Description"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateExperiences_UserId"" ON public.""CandidateExperiences"" (""UserId"");",
+
+            // 5. CandidateEducations Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateEducations"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Degree"" character varying(200) NOT NULL,
+                ""Institution"" character varying(200) NOT NULL,
+                ""FieldOfStudy"" character varying(150),
+                ""StartYear"" character varying(50) NOT NULL,
+                ""EndYear"" character varying(50),
+                ""Description"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateEducations_UserId"" ON public.""CandidateEducations"" (""UserId"");",
+
+            // 6. CandidateProjects Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateProjects"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""ProjectName"" character varying(200) NOT NULL,
+                ""Role"" character varying(150),
+                ""Description"" text,
+                ""Link"" character varying(500),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateProjects_UserId"" ON public.""CandidateProjects"" (""UserId"");",
+
+            // 7. CandidateSkills Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateSkills"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""SkillName"" character varying(100) NOT NULL,
+                ""Category"" character varying(100),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateSkills_UserId"" ON public.""CandidateSkills"" (""UserId"");",
+
+            // 8. CandidateCertifications Table
+            @"CREATE TABLE IF NOT EXISTS public.""CandidateCertifications"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""UserId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""Title"" character varying(200) NOT NULL,
+                ""IssuingOrganization"" character varying(200) NOT NULL,
+                ""IssueDate"" character varying(100),
+                ""CredentialUrl"" character varying(500),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CandidateCertifications_UserId"" ON public.""CandidateCertifications"" (""UserId"");",
+
+            // 9. JobApplications Table
+            @"CREATE TABLE IF NOT EXISTS public.""JobApplications"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""AppliedDate"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Applied',
+                ""CoverNote"" character varying(2000),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_JobApplications_JobId_CandidateId"" UNIQUE (""JobId"", ""CandidateId"")
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_JobId"" ON public.""JobApplications"" (""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_CandidateId"" ON public.""JobApplications"" (""CandidateId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobApplications_AppliedDate"" ON public.""JobApplications"" (""AppliedDate"");",
+
+            // 10. Deterministic AI Match Cache
+            @"CREATE TABLE IF NOT EXISTS public.""AiMatchResults"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""MatchPercentage"" integer NOT NULL CHECK (""MatchPercentage"" BETWEEN 0 AND 100),
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_AiMatchResults_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
+            );",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AiMatchResults_CandidateId_JobId"" ON public.""AiMatchResults"" (""CandidateId"", ""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");"
         };
 
         foreach (var ddl in ddlStatements)
@@ -283,7 +488,7 @@ using (var scope = app.Services.CreateScope())
             dbContext.Database.ExecuteSqlRaw(ddl);
         }
 
-        logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies verified in 'public').");
+        logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies, Candidate CV Tables verified in 'public').");
     }
     catch (Exception ex)
     {

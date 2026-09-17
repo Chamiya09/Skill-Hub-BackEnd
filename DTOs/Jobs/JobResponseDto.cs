@@ -14,6 +14,7 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         public string Status { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string? WhatWeOffer { get; set; }
+        public int ApplicantsCount { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
