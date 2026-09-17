@@ -333,6 +333,11 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var candidateIds = applications.Select(a => a.CandidateId).Distinct().ToList();
 
+            var aiScores = await _dbContext.AiMatchResults
+                .AsNoTracking()
+                .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
+                .ToDictionaryAsync(result => result.CandidateId, result => result.MatchPercentage);
+
             var skillsMap = await _dbContext.CandidateSkills
                 .Where(s => candidateIds.Contains(s.UserId))
                 .GroupBy(s => s.UserId)
@@ -425,7 +430,8 @@ namespace Skill_Hub_BackEnd.Controllers
                     CoverNote = app.CoverNote,
                     Skills = skills,
                     HighestEducation = highestEdu,
-                    CurrentCompany = currentComp ?? recentExp?.Company
+                    CurrentCompany = currentComp ?? recentExp?.Company,
+                    AiMatchScore = aiScores.TryGetValue(app.CandidateId, out var score) ? score : null
                 };
             }).ToList();
 

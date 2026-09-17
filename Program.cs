@@ -15,6 +15,13 @@ AppContext.SetSwitch("System.Net.DisableIPv6", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Avoid the Windows Event Log provider in local/dev hosting. It requires an
+// elevated, pre-registered event source and can otherwise crash the process
+// while attempting to report an unrelated startup error.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // Local development convenience: the Python worker already owns the repository's
 // untracked .env file. ASP.NET does not load dotenv files automatically, so import
 // only the two Groq settings when they were not supplied by user-secrets, process
@@ -70,6 +77,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
 builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
+builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
@@ -476,11 +484,30 @@ using (var scope = app.Services.CreateScope())
                 ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
                 ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
                 ""MatchPercentage"" integer NOT NULL CHECK (""MatchPercentage"" BETWEEN 0 AND 100),
+                ""BreakdownJson"" text,
+                ""StrengthsJson"" text,
+                ""MissingSkillsJson"" text,
+                ""Recommendation"" text,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 CONSTRAINT ""UQ_AiMatchResults_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
             );",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""BreakdownJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""StrengthsJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""MissingSkillsJson"" text;",
+            @"ALTER TABLE public.""AiMatchResults"" ADD COLUMN IF NOT EXISTS ""Recommendation"" text;",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AiMatchResults_CandidateId_JobId"" ON public.""AiMatchResults"" (""CandidateId"", ""JobId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_AiMatchResults_JobId"" ON public.""AiMatchResults"" (""JobId"");",
+
+            // 11. Candidate-owned saved job bookmarks
+            @"CREATE TABLE IF NOT EXISTS public.""SavedJobs"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies"" (""Id"") ON DELETE CASCADE,
+                ""SavedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                CONSTRAINT ""UQ_SavedJobs_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
+            );",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SavedJobs_CandidateId_JobId"" ON public.""SavedJobs"" (""CandidateId"", ""JobId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");"
         };
 
         foreach (var ddl in ddlStatements)
