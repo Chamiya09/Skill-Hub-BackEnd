@@ -231,6 +231,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 FullName = candidate?.FullName ?? candidate?.Email ?? "Candidate",
                 Email = candidate?.Email ?? string.Empty,
                 Headline = candidate?.Headline,
+                Location = candidate?.Location,
+                Phone = candidate?.Phone,
                 Skills = candidate?.Skills.Select(skill => skill.SkillName).ToList() ?? new(),
                 AppliedDate = application.AppliedDate,
                 Status = application.Status,

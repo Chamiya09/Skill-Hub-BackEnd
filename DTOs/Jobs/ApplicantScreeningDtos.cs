@@ -23,6 +23,8 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         public List<string> Skills { get; set; } = new();
         public DateTime AppliedDate { get; set; }
         public string Status { get; set; } = "Applied";
+        public string? Location { get; set; }
+        public string? Phone { get; set; }
         public int? AiMatchScore { get; set; }
 
         /// <summary>
