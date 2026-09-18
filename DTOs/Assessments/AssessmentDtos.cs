@@ -65,6 +65,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public DateTime UpdatedAt { get; set; }
 
         public int TotalSubmissions { get; set; }
+        public bool HasActiveCandidateExam { get; set; }
+        public bool CanEdit { get; set; } = true;
     }
 
     public sealed class AssessmentTrackSummaryDto

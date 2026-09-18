@@ -50,9 +50,20 @@ namespace Skill_Hub_BackEnd.Controllers
             [FromBody] UpdateAssessmentDto dto,
             CancellationToken cancellationToken)
         {
-            var hrManagerId = GetCurrentUserId();
-            var result = await _assessmentService.UpdateAssessmentAsync(id, dto, hrManagerId, cancellationToken);
-            return Ok(result);
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.UpdateAssessmentAsync(id, dto, hrManagerId, cancellationToken);
+                return Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -136,10 +147,17 @@ namespace Skill_Hub_BackEnd.Controllers
             Guid id,
             CancellationToken cancellationToken)
         {
-            var hrManagerId = GetCurrentUserId();
-            var deleted = await _assessmentService.DeleteAssessmentAsync(id, hrManagerId, cancellationToken);
-            if (!deleted) return NotFound(new { message = "Assessment not found." });
-            return NoContent();
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var deleted = await _assessmentService.DeleteAssessmentAsync(id, hrManagerId, cancellationToken);
+                if (!deleted) return NotFound(new { message = "Assessment not found." });
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         #endregion

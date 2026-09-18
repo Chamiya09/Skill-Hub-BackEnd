@@ -75,6 +75,14 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (assessment == null)
                 throw new KeyNotFoundException($"Assessment with ID '{id}' was not found.");
 
+            var hasActiveCandidateExam = assessment.Submissions != null &&
+                assessment.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+
+            if (hasActiveCandidateExam)
+            {
+                throw new InvalidOperationException("This assessment cannot be edited because it has been dispatched to a candidate who has not yet completed the exam.");
+            }
+
             assessment.Title = dto.Title.Trim();
             assessment.PassingThreshold = dto.PassingThreshold;
             assessment.TimeLimitMinutes = dto.TimeLimitMinutes;
@@ -83,7 +91,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            return MapToResponseDto(assessment, assessment.Submissions.Count);
+            return MapToResponseDto(assessment, assessment.Submissions?.Count ?? 0);
         }
 
         public async Task<AssessmentResponseDto> PublishAssessmentAsync(
@@ -186,9 +194,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var assessment = await _dbContext.Assessments
+                .Include(a => a.Submissions)
                 .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
 
             if (assessment == null) return false;
+
+            var hasActiveCandidateExam = assessment.Submissions != null &&
+                assessment.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+
+            if (hasActiveCandidateExam)
+            {
+                throw new InvalidOperationException("This assessment cannot be deleted because it has been dispatched to a candidate who has not yet completed the exam.");
+            }
 
             _dbContext.Assessments.Remove(assessment);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -784,6 +801,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         private static AssessmentResponseDto MapToResponseDto(Assessment a, int submissionsCount)
         {
+            var hasActiveCandidateExam = a.Submissions != null &&
+                a.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+
             return new AssessmentResponseDto
             {
                 Id = a.Id,
@@ -797,7 +817,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 Status = a.Status,
                 CreatedAt = a.CreatedAt,
                 UpdatedAt = a.UpdatedAt,
-                TotalSubmissions = submissionsCount
+                TotalSubmissions = submissionsCount,
+                HasActiveCandidateExam = hasActiveCandidateExam,
+                CanEdit = !hasActiveCandidateExam
             };
         }
 
