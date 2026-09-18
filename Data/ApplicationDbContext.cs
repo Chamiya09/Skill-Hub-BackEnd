@@ -206,7 +206,7 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(s => s.Assessment)
                       .WithMany(a => a.Submissions)
                       .HasForeignKey(s => s.AssessmentId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict);
             });
         }
     }

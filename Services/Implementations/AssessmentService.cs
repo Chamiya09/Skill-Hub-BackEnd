@@ -140,7 +140,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             var assessments = await _dbContext.Assessments
                 .AsNoTracking()
-                .Where(a => a.JobVacancyId == jobVacancyId)
+                .Where(a => a.JobVacancyId == jobVacancyId && a.Status != "Archived")
                 .Include(a => a.Submissions)
                 .OrderByDescending(a => a.CreatedAt)
                 .ToListAsync(cancellationToken);
@@ -205,6 +205,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (hasActiveCandidateExam)
             {
                 throw new InvalidOperationException("This assessment cannot be deleted because it has been dispatched to a candidate who has not yet completed the exam.");
+            }
+
+            // If this assessment has candidate submissions (even if completed),
+            // soft-delete / archive it so candidates permanently retain their completed assessment records,
+            // scorecards, feedback, and interview statuses on their Candidate Dashboard!
+            var hasSubmissions = assessment.Submissions != null && assessment.Submissions.Count > 0;
+            if (hasSubmissions)
+            {
+                assessment.Status = "Archived";
+                assessment.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                return true;
             }
 
             _dbContext.Assessments.Remove(assessment);
@@ -329,13 +341,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 {
                     SubmissionId = s.Id,
                     AssessmentId = s.AssessmentId,
-                    AssessmentTitle = assessment?.Title ?? "Technical Assessment",
+                    AssessmentTitle = assessment?.Title ?? (!string.IsNullOrWhiteSpace(job?.Title) ? $"{job.Title} Skill Assessment" : "Technical Assessment"),
                     JobVacancyId = s.JobVacancyId,
                     JobTitle = job?.Title ?? "Engineering Position",
                     CompanyName = job?.Company?.CompanyName ?? "Hiring Company",
                     Department = job?.Department ?? "Engineering",
                     TimeLimitMinutes = assessment?.TimeLimitMinutes ?? 60,
-                    QuestionCount = questions.Count,
+                    QuestionCount = questions.Count > 0 ? questions.Count : 1,
                     PassingThreshold = assessment?.PassingThreshold ?? 60.00m,
                     Status = s.Status,
                     ExamScore = s.ExamScore,
