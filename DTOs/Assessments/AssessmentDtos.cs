@@ -72,6 +72,7 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         public int TotalSubmissions { get; set; }
         public bool HasActiveCandidateExam { get; set; }
+        public bool HasSuspendedCandidateExam { get; set; }
         public bool CanEdit { get; set; } = true;
     }
 

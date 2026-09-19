@@ -250,6 +250,22 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Blocks/terminates an assessment when candidate exits, closes the tab, or leaves the session.
+        /// </summary>
+        [HttpPost("take/{submissionId:guid}/block")]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<IActionResult> BlockAssessment(
+            Guid submissionId,
+            CancellationToken cancellationToken)
+        {
+            var candidateId = GetCurrentUserId();
+            var blocked = await _assessmentService.BlockAssessmentAsync(submissionId, candidateId, cancellationToken);
+            if (!blocked) return NotFound(new { message = "Submission not found." });
+            return Ok(new { success = true, message = "Assessment blocked. Retake is prohibited." });
+        }
+
+        /// <summary>
         /// Candidate runs code against a sample test case via Piston execution sandbox.
         /// </summary>
         [HttpPost("take/{submissionId:guid}/run")]
@@ -349,19 +365,32 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Delete rejected candidate's submission data (compliance / data pruning).
+        /// Delete candidate's submission data (candidate deleting their assessment, or HR compliance / data pruning).
         /// </summary>
         [HttpDelete("submissions/{submissionId:guid}")]
-        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [Authorize]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         public async Task<IActionResult> DeleteSubmission(
             Guid submissionId,
             CancellationToken cancellationToken)
         {
+            var candidateId = GetCandidateId();
             var hrManagerId = GetCurrentUserId();
-            var deleted = await _assessmentService.DeleteSubmissionAsync(submissionId, hrManagerId, cancellationToken);
-            if (!deleted) return NotFound(new { message = "Submission not found." });
-            return NoContent();
+            var isCandidate = User.IsInRole("Candidate") || User.IsInRole("Job_Seeker") || User.IsInRole("User") ||
+                (!User.IsInRole("Company") && !User.IsInRole("Employer") && !User.IsInRole("Admin") && !User.IsInRole("HR_Admin"));
+
+            var userId = (isCandidate && candidateId.HasValue) ? candidateId.Value : hrManagerId;
+
+            try
+            {
+                var deleted = await _assessmentService.DeleteSubmissionAsync(submissionId, userId, isCandidate, cancellationToken);
+                if (!deleted) return NotFound(new { message = "Submission not found." });
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
         }
 
         /// <summary>

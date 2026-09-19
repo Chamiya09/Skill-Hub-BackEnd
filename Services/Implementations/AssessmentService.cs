@@ -80,7 +80,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new KeyNotFoundException($"Assessment with ID '{id}' was not found.");
 
             var hasActiveCandidateExam = assessment.Submissions != null &&
-                assessment.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+                assessment.Submissions.Any(s => s.Status == "Started" && s.StartedAt.HasValue && s.StartedAt.Value.AddMinutes(assessment.TimeLimitMinutes) > DateTime.UtcNow);
 
             if (hasActiveCandidateExam)
             {
@@ -144,13 +144,35 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var assessments = await _dbContext.Assessments
-                .AsNoTracking()
                 .Where(a => a.JobVacancyId == jobVacancyId && a.Status != "Archived")
                 .Include(a => a.Submissions)
                 .OrderByDescending(a => a.CreatedAt)
                 .ToListAsync(cancellationToken);
 
-            return assessments.Select(a => MapToResponseDto(a, a.Submissions.Count)).ToList();
+            // Auto-clean any stale or abandoned "Started" submissions whose time limit has expired or were exited
+            bool hasChanges = false;
+            foreach (var a in assessments)
+            {
+                if (a.Submissions != null)
+                {
+                    foreach (var s in a.Submissions)
+                    {
+                        if (s.Status == "Started" && s.StartedAt.HasValue &&
+                            s.StartedAt.Value.AddMinutes(a.TimeLimitMinutes) < DateTime.UtcNow)
+                        {
+                            s.Status = "Blocked";
+                            s.UpdatedAt = DateTime.UtcNow;
+                            hasChanges = true;
+                        }
+                    }
+                }
+            }
+            if (hasChanges)
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            return assessments.Select(a => MapToResponseDto(a, a.Submissions?.Count ?? 0)).ToList();
         }
 
         public async Task<IReadOnlyList<AssessmentTrackSummaryDto>> GetAssessmentTracksByJobAsync(
@@ -206,7 +228,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (assessment == null) return false;
 
             var hasActiveCandidateExam = assessment.Submissions != null &&
-                assessment.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+                assessment.Submissions.Any(s => s.Status == "Started" && s.StartedAt.HasValue && s.StartedAt.Value.AddMinutes(assessment.TimeLimitMinutes) > DateTime.UtcNow);
 
             if (hasActiveCandidateExam)
             {
@@ -351,8 +373,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 var questions = DeserializeQuestions(assessment?.FinalQuestions);
 
                 var isCompleted = s.Status == "Submitted" || s.Status == "Under_Review" || s.Status == "Graded" || s.Status == "Passed" || s.Status == "Rejected";
+                var isBlocked = s.Status == "Blocked" || (s.Status == "Started" && !isCompleted);
                 var expiresAt = s.ExpiresAt ?? assessment?.ExpiresAt ?? s.CreatedAt.AddHours(48);
-                var isExpired = !isCompleted && DateTime.UtcNow > expiresAt;
+                var isExpired = !isCompleted && !isBlocked && DateTime.UtcNow > expiresAt;
 
                 result.Add(new CandidateAssessmentListItemDto
                 {
@@ -380,7 +403,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     StartedAt = s.StartedAt,
                     SubmittedAt = s.SubmittedAt,
                     ExpiresAt = expiresAt,
-                    IsExpired = isExpired
+                    IsExpired = isExpired,
+                    IsBlocked = isBlocked
                 });
             }
 
@@ -403,6 +427,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new UnauthorizedAccessException("You are not authorized to access this exam submission.");
 
             var isCompleted = submission.Status == "Submitted" || submission.Status == "Under_Review" || submission.Status == "Graded" || submission.Status == "Passed" || submission.Status == "Rejected";
+            if (submission.Status == "Blocked" || (submission.Status == "Started" && !isCompleted))
+            {
+                throw new InvalidOperationException("This technical assessment has been blocked and cannot be retaken because the test session was closed or exited.");
+            }
+
             var expiresAt = submission.ExpiresAt ?? submission.Assessment?.ExpiresAt;
             if (!isCompleted && expiresAt.HasValue && DateTime.UtcNow > expiresAt.Value)
             {
@@ -426,7 +455,6 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var submission = await _dbContext.Submissions
-                .AsNoTracking()
                 .Include(s => s.Assessment)
                 .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
 
@@ -437,6 +465,29 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new UnauthorizedAccessException("You are not authorized to access this exam submission.");
 
             var isCompleted = submission.Status == "Submitted" || submission.Status == "Under_Review" || submission.Status == "Graded" || submission.Status == "Passed" || submission.Status == "Rejected";
+            if (submission.Status == "Blocked")
+            {
+                throw new InvalidOperationException("This technical assessment has been blocked and cannot be retaken because the test session was closed or exited.");
+            }
+
+            if (submission.Status == "Started" && !isCompleted)
+            {
+                submission.Status = "Blocked";
+                submission.UpdatedAt = DateTime.UtcNow;
+
+                var application = await _dbContext.JobApplications
+                    .FirstOrDefaultAsync(a => a.Id == submission.ApplicationId, cancellationToken);
+                if (application != null && !application.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+                {
+                    application.Status = "Assessment_Suspended";
+                    application.UpdatedAt = DateTime.UtcNow;
+                }
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                throw new InvalidOperationException("This technical assessment has been blocked and cannot be retaken because the test session was closed or exited.");
+            }
+
             var expiresAt = submission.ExpiresAt ?? submission.Assessment?.ExpiresAt;
             if (!isCompleted && expiresAt.HasValue && DateTime.UtcNow > expiresAt.Value)
             {
@@ -444,6 +495,41 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }
 
             return BuildSanitizedExamPaper(submission);
+        }
+
+        public async Task<bool> BlockAssessmentAsync(
+            Guid submissionId,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var submission = await _dbContext.Submissions
+                .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
+
+            if (submission == null) return false;
+
+            if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
+                throw new UnauthorizedAccessException("You are not authorized to modify this exam submission.");
+
+            var isCompleted = submission.Status == "Submitted" || submission.Status == "Under_Review" || submission.Status == "Graded" || submission.Status == "Passed" || submission.Status == "Rejected";
+            if (isCompleted)
+            {
+                // Completed submissions cannot be blocked
+                return true;
+            }
+
+            submission.Status = "Blocked";
+            submission.UpdatedAt = DateTime.UtcNow;
+
+            var application = await _dbContext.JobApplications
+                .FirstOrDefaultAsync(a => a.Id == submission.ApplicationId, cancellationToken);
+            if (application != null && !application.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+            {
+                application.Status = "Assessment_Suspended";
+                application.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
         }
 
         public async Task<bool> LogProctorEventAsync(
@@ -931,13 +1017,19 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         public async Task<bool> DeleteSubmissionAsync(
             Guid submissionId,
-            Guid hrManagerId,
+            Guid userId,
+            bool isCandidate = false,
             CancellationToken cancellationToken = default)
         {
             var submission = await _dbContext.Submissions
                 .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
 
             if (submission == null) return false;
+
+            if (isCandidate && submission.CandidateId != userId)
+            {
+                throw new UnauthorizedAccessException("You are not authorized to delete this assessment.");
+            }
 
             _dbContext.Submissions.Remove(submission);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -1052,7 +1144,12 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         private static AssessmentResponseDto MapToResponseDto(Assessment a, int submissionsCount)
         {
             var hasActiveCandidateExam = a.Submissions != null &&
-                a.Submissions.Any(s => s.Status == "Assigned" || s.Status == "Started");
+                a.Submissions.Any(s => s.Status == "Started" &&
+                    s.StartedAt.HasValue &&
+                    s.StartedAt.Value.AddMinutes(a.TimeLimitMinutes) > DateTime.UtcNow);
+
+            var hasSuspendedCandidateExam = a.Submissions != null &&
+                a.Submissions.Any(s => s.Status == "Blocked");
 
             return new AssessmentResponseDto
             {
@@ -1070,6 +1167,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ExpiresAt = a.ExpiresAt,
                 TotalSubmissions = submissionsCount,
                 HasActiveCandidateExam = hasActiveCandidateExam,
+                HasSuspendedCandidateExam = hasSuspendedCandidateExam,
                 CanEdit = !hasActiveCandidateExam
             };
         }

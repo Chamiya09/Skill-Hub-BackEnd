@@ -217,6 +217,7 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public DateTime? SubmittedAt { get; set; }
         public DateTime? ExpiresAt { get; set; }
         public bool IsExpired { get; set; }
+        public bool IsBlocked { get; set; }
     }
 
     public sealed class QuestionReviewItemDto

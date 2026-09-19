@@ -69,6 +69,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             ProctorEventRequestDto eventDto,
             CancellationToken cancellationToken = default);
 
+        Task<bool> BlockAssessmentAsync(
+            Guid submissionId,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default);
+
         Task<RunCodeResponseDto> RunSampleTestAsync(
             Guid submissionId,
             RunCodeRequestDto dto,
@@ -113,7 +118,8 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
 
         Task<bool> DeleteSubmissionAsync(
             Guid submissionId,
-            Guid hrManagerId,
+            Guid userId,
+            bool isCandidate = false,
             CancellationToken cancellationToken = default);
     }
 }

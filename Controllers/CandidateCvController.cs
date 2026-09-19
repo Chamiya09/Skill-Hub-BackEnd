@@ -441,7 +441,14 @@ namespace Skill_Hub_BackEnd.Controllers
                              !status.Equals("Hired", StringComparison.OrdinalIgnoreCase) &&
                              !status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
                     {
-                        status = "Assessment";
+                        if (submission.Status == "Blocked" || status.Equals("Assessment_Suspended", StringComparison.OrdinalIgnoreCase))
+                        {
+                            status = "Assessment_Suspended";
+                        }
+                        else
+                        {
+                            status = "Assessment";
+                        }
                     }
                 }
 
