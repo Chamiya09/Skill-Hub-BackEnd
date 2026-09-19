@@ -558,7 +558,9 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_Status"" ON public.""Submissions"" (""Status"");",
             @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""IsSelectedForInterview"" boolean NOT NULL DEFAULT false;",
             @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewerFeedback"" text;",
-            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewedBy"" uuid;"
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewedBy"" uuid;",
+            @"ALTER TABLE public.""Assessments"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;"
         };
 
         foreach (var ddl in ddlStatements)

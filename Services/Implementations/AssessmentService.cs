@@ -53,6 +53,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 TimeLimitMinutes = dto.TimeLimitMinutes,
                 CreatedBy = hrManagerId,
                 Status = dto.PublishImmediately ? "Published" : "Draft",
+                ExpiresAt = dto.ExpiresAt.HasValue ? DateTime.SpecifyKind(dto.ExpiresAt.Value, DateTimeKind.Utc) : null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -90,6 +91,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             assessment.PassingThreshold = dto.PassingThreshold;
             assessment.TimeLimitMinutes = dto.TimeLimitMinutes;
             assessment.FinalQuestions = JsonSerializer.Serialize(dto.FinalQuestions, JsonOpts);
+            assessment.ExpiresAt = dto.ExpiresAt.HasValue ? DateTime.SpecifyKind(dto.ExpiresAt.Value, DateTimeKind.Utc) : null;
             assessment.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -171,7 +173,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     TimeLimitMinutes = a.TimeLimitMinutes,
                     QuestionCount = questions.Count,
                     PassingThreshold = a.PassingThreshold,
-                    Status = a.Status
+                    Status = a.Status,
+                    ExpiresAt = a.ExpiresAt
                 };
             }).ToList();
         }
@@ -256,11 +259,14 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     s.ApplicationId == dto.ApplicationId,
                     cancellationToken);
 
+            var submissionExpiresAt = assessment.ExpiresAt ?? DateTime.UtcNow.AddHours(dto.ExpiresInHours > 0 ? dto.ExpiresInHours : 48);
+
             Submission submission;
             if (existingSubmission != null)
             {
                 submission = existingSubmission;
                 submission.CvScore = dto.CvMatchScore;
+                submission.ExpiresAt = submissionExpiresAt;
                 submission.UpdatedAt = DateTime.UtcNow;
             }
             else
@@ -275,6 +281,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ExamScore = 0.00m,
                     FinalWeightedScore = 0.00m,
                     Status = "Assigned",
+                    ExpiresAt = submissionExpiresAt,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -301,7 +308,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CandidateId = dto.CandidateId,
                 CandidateEmail = candidateEmail,
                 TestLink = $"/exam/take/{submission.Id}",
-                ExpiresInHours = 48,
+                ExpiresInHours = assessment.ExpiresAt.HasValue
+                    ? Math.Max(1, (int)Math.Round((assessment.ExpiresAt.Value - DateTime.UtcNow).TotalHours))
+                    : 48,
                 Status = submission.Status,
                 Message = $"Assessment invitation dispatched successfully for {candidateEmail}."
             };
@@ -340,6 +349,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 var assessment = s.Assessment;
                 var questions = DeserializeQuestions(assessment?.FinalQuestions);
 
+                var isCompleted = s.Status == "Submitted" || s.Status == "Under_Review" || s.Status == "Graded" || s.Status == "Passed" || s.Status == "Rejected";
+                var expiresAt = s.ExpiresAt ?? assessment?.ExpiresAt ?? s.CreatedAt.AddHours(48);
+                var isExpired = !isCompleted && DateTime.UtcNow > expiresAt;
+
                 result.Add(new CandidateAssessmentListItemDto
                 {
                     SubmissionId = s.Id,
@@ -361,7 +374,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     AssignedAt = s.CreatedAt,
                     StartedAt = s.StartedAt,
                     SubmittedAt = s.SubmittedAt,
-                    ExpiresAt = s.CreatedAt.AddHours(48)
+                    ExpiresAt = expiresAt,
+                    IsExpired = isExpired
                 });
             }
 
@@ -382,6 +396,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
                 throw new UnauthorizedAccessException("You are not authorized to access this exam submission.");
+
+            var isCompleted = submission.Status == "Submitted" || submission.Status == "Under_Review" || submission.Status == "Graded" || submission.Status == "Passed" || submission.Status == "Rejected";
+            var expiresAt = submission.ExpiresAt ?? submission.Assessment?.ExpiresAt;
+            if (!isCompleted && expiresAt.HasValue && DateTime.UtcNow > expiresAt.Value)
+            {
+                throw new InvalidOperationException($"This technical assessment expired on {expiresAt.Value:MMM dd, yyyy HH:mm} UTC and is no longer accessible.");
+            }
 
             if (submission.Status == "Assigned")
             {
@@ -409,6 +430,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
                 throw new UnauthorizedAccessException("You are not authorized to access this exam submission.");
+
+            var isCompleted = submission.Status == "Submitted" || submission.Status == "Under_Review" || submission.Status == "Graded" || submission.Status == "Passed" || submission.Status == "Rejected";
+            var expiresAt = submission.ExpiresAt ?? submission.Assessment?.ExpiresAt;
+            if (!isCompleted && expiresAt.HasValue && DateTime.UtcNow > expiresAt.Value)
+            {
+                throw new InvalidOperationException($"This technical assessment expired on {expiresAt.Value:MMM dd, yyyy HH:mm} UTC and is no longer accessible.");
+            }
 
             return BuildSanitizedExamPaper(submission);
         }
@@ -1034,6 +1062,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 Status = a.Status,
                 CreatedAt = a.CreatedAt,
                 UpdatedAt = a.UpdatedAt,
+                ExpiresAt = a.ExpiresAt,
                 TotalSubmissions = submissionsCount,
                 HasActiveCandidateExam = hasActiveCandidateExam,
                 CanEdit = !hasActiveCandidateExam

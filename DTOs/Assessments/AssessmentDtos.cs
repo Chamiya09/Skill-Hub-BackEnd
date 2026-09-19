@@ -22,6 +22,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public List<CodingQuestionItemDto> Questions { get; set; } = new();
 
         public bool PublishImmediately { get; set; } = true;
+
+        public DateTime? ExpiresAt { get; set; }
     }
 
     public sealed class UpdateAssessmentDto
@@ -38,6 +40,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         [Required]
         public List<CodingQuestionItemDto> FinalQuestions { get; set; } = new();
+
+        public DateTime? ExpiresAt { get; set; }
     }
 
     public sealed class AssessmentResponseDto
@@ -64,6 +68,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         public DateTime UpdatedAt { get; set; }
 
+        public DateTime? ExpiresAt { get; set; }
+
         public int TotalSubmissions { get; set; }
         public bool HasActiveCandidateExam { get; set; }
         public bool CanEdit { get; set; } = true;
@@ -82,6 +88,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public decimal PassingThreshold { get; set; }
 
         public string Status { get; set; } = "Published";
+
+        public DateTime? ExpiresAt { get; set; }
     }
 }
 

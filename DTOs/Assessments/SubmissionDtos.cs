@@ -22,6 +22,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         [Range(0, 100)]
         public decimal CvMatchScore { get; set; } = 0.00m;
+
+        public int ExpiresInHours { get; set; } = 48;
     }
 
     public sealed class DispatchAssessmentResponseDto
@@ -213,7 +215,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public DateTime AssignedAt { get; set; }
         public DateTime? StartedAt { get; set; }
         public DateTime? SubmittedAt { get; set; }
-        public DateTime ExpiresAt { get; set; }
+        public DateTime? ExpiresAt { get; set; }
+        public bool IsExpired { get; set; }
     }
 
     public sealed class QuestionReviewItemDto

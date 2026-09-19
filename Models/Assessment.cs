@@ -53,6 +53,8 @@ namespace Skill_Hub_BackEnd.Models
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        public DateTime? ExpiresAt { get; set; }
+
         public ICollection<Submission> Submissions { get; set; } = new List<Submission>();
     }
 }

@@ -61,6 +61,8 @@ namespace Skill_Hub_BackEnd.Models
 
         public DateTime? GradedAt { get; set; }
 
+        public DateTime? ExpiresAt { get; set; }
+
         /// <summary>
         /// JSONB telemetry data capturing tab switches, blur counts, and timestamps.
         /// </summary>
