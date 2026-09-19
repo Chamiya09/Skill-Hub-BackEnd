@@ -153,6 +153,54 @@ namespace Skill_Hub_BackEnd.Controllers
             });
         }
 
+        [HttpPost("reject-applicant")]
+        [HttpPost("reject-candidate")]
+        public async Task<IActionResult> RejectApplicant(
+            Guid jobId,
+            [FromBody] List<Guid> candidateIds,
+            CancellationToken cancellationToken)
+        {
+            if (candidateIds.Count == 0) return BadRequest(new { message = "Select at least one candidate." });
+            var companyId = GetCurrentCompanyId();
+            if (companyId is null) return Unauthorized(new { message = "A company identifier is required." });
+            if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
+                job => job.Id == jobId && job.CompanyId == companyId.Value && job.Status != "Deleted",
+                cancellationToken))
+                return NotFound(new { message = "Job not found or access denied." });
+
+            var distinctIds = candidateIds.Distinct().ToList();
+            var applications = await _dbContext.JobApplications
+                .Where(application => application.JobId == jobId &&
+                    distinctIds.Contains(application.CandidateId))
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+            foreach (var application in applications)
+            {
+                application.Status = "Rejected";
+                application.UpdatedAt = now;
+            }
+
+            // Also mark any associated active or incomplete submissions as Rejected
+            var submissions = await _dbContext.Submissions
+                .Where(s => s.JobVacancyId == jobId && distinctIds.Contains(s.CandidateId))
+                .ToListAsync(cancellationToken);
+
+            foreach (var sub in submissions)
+            {
+                sub.Status = "Rejected";
+                sub.UpdatedAt = now;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return Ok(new
+            {
+                message = $"{applications.Count} candidate(s) marked as Rejected.",
+                updatedCount = applications.Count,
+            });
+        }
+
         /// <summary>
         /// Returns all shortlisted applicants for a job, with full profile data for the Hiring Pipeline board.
         /// Endpoint: GET /api/jobs/{jobId}/shortlisted
