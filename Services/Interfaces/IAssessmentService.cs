@@ -69,6 +69,12 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             ProctorEventRequestDto eventDto,
             CancellationToken cancellationToken = default);
 
+        Task<RunCodeResponseDto> RunSampleTestAsync(
+            Guid submissionId,
+            RunCodeRequestDto dto,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default);
+
         Task<SubmissionDetailDto> SubmitAnswersAsync(
             Guid submissionId,
             SubmitAnswersRequestDto answersDto,

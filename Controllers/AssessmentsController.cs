@@ -250,6 +250,32 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Candidate runs code against a sample test case via Piston execution sandbox.
+        /// </summary>
+        [HttpPost("take/{submissionId:guid}/run")]
+        [ProducesResponseType(typeof(RunCodeResponseDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> RunSampleTest(
+            Guid submissionId,
+            [FromBody] RunCodeRequestDto runDto,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var candidateId = GetCandidateId();
+                var result = await _assessmentService.RunSampleTestAsync(submissionId, runDto, candidateId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Candidate submits code solutions. Triggers auto-grading and evaluates passing threshold.
         /// </summary>
         [HttpPost("take/{submissionId:guid}/submit")]

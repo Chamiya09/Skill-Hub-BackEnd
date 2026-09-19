@@ -79,6 +79,10 @@ builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(

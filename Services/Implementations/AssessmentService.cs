@@ -20,13 +20,16 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         private readonly ApplicationDbContext _dbContext;
         private readonly ILogger<AssessmentService> _logger;
+        private readonly IPistonExecutionService _pistonService;
 
         public AssessmentService(
             ApplicationDbContext dbContext,
-            ILogger<AssessmentService> logger)
+            ILogger<AssessmentService> logger,
+            IPistonExecutionService pistonService)
         {
             _dbContext = dbContext;
             _logger = logger;
+            _pistonService = pistonService;
         }
 
         #region 1. Assessment Creation & Management
@@ -437,6 +440,69 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             return true;
         }
 
+        public async Task<RunCodeResponseDto> RunSampleTestAsync(
+            Guid submissionId,
+            RunCodeRequestDto dto,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(dto);
+
+            var submission = await _dbContext.Submissions
+                .AsNoTracking()
+                .Include(s => s.Assessment)
+                .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
+
+            if (submission == null)
+                throw new KeyNotFoundException($"Submission '{submissionId}' was not found.");
+
+            if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
+                throw new UnauthorizedAccessException("You are not authorized to run code for this assessment.");
+
+            var questions = DeserializeQuestions(submission.Assessment?.FinalQuestions);
+            var question = questions.FirstOrDefault(q => string.Equals(q.Id, dto.QuestionId, StringComparison.OrdinalIgnoreCase));
+
+            string stdin = dto.CustomInput ?? string.Empty;
+            string? expectedOutput = null;
+
+            if (string.IsNullOrWhiteSpace(stdin) && question != null && question.SampleTestCases.Count > 0)
+            {
+                var firstSample = question.SampleTestCases[0];
+                stdin = firstSample.Input;
+                expectedOutput = firstSample.ExpectedOutput;
+            }
+
+            var lang = !string.IsNullOrWhiteSpace(dto.Language) ? dto.Language : (question?.Language ?? "python");
+            var result = await _pistonService.ExecuteCodeAsync(
+                dto.Code,
+                lang,
+                stdin,
+                cancellationToken);
+
+            bool? samplePassed = null;
+            if (!string.IsNullOrWhiteSpace(expectedOutput) && !result.IsError)
+            {
+                var normalizedActual = result.Stdout.Trim().Replace("\r\n", "\n");
+                var normalizedExpected = expectedOutput.Trim().Replace("\r\n", "\n");
+                samplePassed = string.Equals(normalizedActual, normalizedExpected, StringComparison.Ordinal);
+            }
+
+            return new RunCodeResponseDto
+            {
+                Stdout = result.Stdout,
+                Stderr = result.Stderr,
+                ExitCode = result.ExitCode,
+                CompileOutput = result.CompileOutput,
+                IsRateLimited = result.IsRateLimited,
+                IsError = result.IsError,
+                ErrorMessage = result.ErrorMessage,
+                ExecutionTimeMs = result.ExecutionTimeMs,
+                SampleInputUsed = stdin,
+                ExpectedOutput = expectedOutput,
+                SamplePassed = samplePassed
+            };
+        }
+
         public async Task<SubmissionDetailDto> SubmitAnswersAsync(
             Guid submissionId,
             SubmitAnswersRequestDto answersDto,
@@ -455,29 +521,104 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
                 throw new UnauthorizedAccessException("You are not authorized to submit this exam.");
 
-            // Preserve candidate typed code solutions for HR manual review without auto-granting scores
-            var submittedAnswers = answersDto.Answers.Select(a => new SubmittedAnswerItemDto
+            var questions = DeserializeQuestions(submission.Assessment?.FinalQuestions);
+            var qMap = questions.ToDictionary(q => q.Id, q => q);
+
+            var submittedAnswers = new List<SubmittedAnswerItemDto>();
+            decimal totalEarnedPoints = 0;
+            decimal totalMaxPoints = 0;
+            bool anyAutomatedTested = false;
+
+            foreach (var ans in answersDto.Answers)
             {
-                QuestionId = a.QuestionId,
-                SubmittedCode = a.SubmittedCode ?? string.Empty,
-                Language = a.Language ?? "csharp",
-                TestCasesPassed = 0,
-                TotalTestCases = 0,
-                Score = 0
-            }).ToList();
+                qMap.TryGetValue(ans.QuestionId, out var q);
+                var questionMaxPoints = q?.Points ?? 10;
+                totalMaxPoints += questionMaxPoints;
+
+                var allTestCases = new List<TestCaseDto>();
+                if (q?.SampleTestCases != null) allTestCases.AddRange(q.SampleTestCases);
+                if (q?.HiddenTestCases != null) allTestCases.AddRange(q.HiddenTestCases);
+
+                var testCaseEvaluations = new List<TestCaseEvaluationItemDto>();
+                int passedCount = 0;
+                var lang = !string.IsNullOrWhiteSpace(ans.Language) ? ans.Language : (q?.Language ?? "python");
+
+                if (allTestCases.Count > 0 && !string.IsNullOrWhiteSpace(ans.SubmittedCode))
+                {
+                    anyAutomatedTested = true;
+                    int tcIdx = 1;
+                    foreach (var tc in allTestCases)
+                    {
+                        var execResult = await _pistonService.ExecuteCodeAsync(
+                            ans.SubmittedCode,
+                            lang,
+                            tc.Input,
+                            cancellationToken);
+
+                        var normalizedActual = execResult.Stdout.Trim().Replace("\r\n", "\n");
+                        var normalizedExpected = tc.ExpectedOutput.Trim().Replace("\r\n", "\n");
+                        bool isPassed = !execResult.IsError && string.Equals(normalizedActual, normalizedExpected, StringComparison.Ordinal);
+
+                        if (isPassed) passedCount++;
+
+                        testCaseEvaluations.Add(new TestCaseEvaluationItemDto
+                        {
+                            Index = tcIdx++,
+                            Input = tc.IsHidden ? "[Hidden Test Case]" : tc.Input,
+                            ExpectedOutput = tc.IsHidden ? "[Hidden Test Case]" : tc.ExpectedOutput,
+                            ActualOutput = tc.IsHidden && !isPassed ? "[Hidden Test Case - Output Mismatch]" : execResult.Stdout,
+                            Passed = isPassed,
+                            IsHidden = tc.IsHidden,
+                            ErrorMessage = execResult.IsError ? (execResult.CompileOutput ?? execResult.Stderr ?? execResult.ErrorMessage) : null
+                        });
+                    }
+                }
+
+                decimal questionScore = allTestCases.Count > 0
+                    ? Math.Round(((decimal)passedCount / allTestCases.Count) * questionMaxPoints, 2)
+                    : 0;
+
+                totalEarnedPoints += questionScore;
+
+                submittedAnswers.Add(new SubmittedAnswerItemDto
+                {
+                    QuestionId = ans.QuestionId,
+                    SubmittedCode = ans.SubmittedCode ?? string.Empty,
+                    Language = lang,
+                    TestCasesPassed = passedCount,
+                    TotalTestCases = allTestCases.Count,
+                    Score = questionScore,
+                    TestCaseResults = testCaseEvaluations
+                });
+            }
+
+            decimal finalExamScore = totalMaxPoints > 0
+                ? Math.Round((totalEarnedPoints / totalMaxPoints) * 100m, 2)
+                : 0.00m;
+
+            finalExamScore = Math.Clamp(finalExamScore, 0.00m, 100.00m);
+            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             submission.Answers = JsonSerializer.Serialize(submittedAnswers, JsonOpts);
             submission.SubmittedAt = DateTime.UtcNow;
-            submission.Status = "Under_Review";
-            submission.ExamScore = 0.00m;
-            submission.FinalWeightedScore = 0.00m;
-            submission.GradedAt = null;
-            submission.UpdatedAt = DateTime.UtcNow;
+            submission.ExamScore = finalExamScore;
+            submission.FinalWeightedScore = finalExamScore;
 
+            if (anyAutomatedTested)
+            {
+                submission.Status = finalExamScore >= passingThreshold ? "Passed" : "Graded";
+                submission.GradedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                submission.Status = "Under_Review";
+                submission.GradedAt = null;
+            }
+
+            submission.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
-            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             return MapToSubmissionDetailDto(submission, candidate?.FullName, candidate?.Email, passingThreshold);
         }

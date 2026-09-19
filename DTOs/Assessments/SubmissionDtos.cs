@@ -47,6 +47,30 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public List<CandidateCodingQuestionDto> Questions { get; set; } = new();
     }
 
+    public sealed class TestCaseEvaluationItemDto
+    {
+        [JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [JsonPropertyName("input")]
+        public string Input { get; set; } = string.Empty;
+
+        [JsonPropertyName("expectedOutput")]
+        public string ExpectedOutput { get; set; } = string.Empty;
+
+        [JsonPropertyName("actualOutput")]
+        public string ActualOutput { get; set; } = string.Empty;
+
+        [JsonPropertyName("passed")]
+        public bool Passed { get; set; }
+
+        [JsonPropertyName("isHidden")]
+        public bool IsHidden { get; set; }
+
+        [JsonPropertyName("errorMessage")]
+        public string? ErrorMessage { get; set; }
+    }
+
     public sealed class SubmittedAnswerItemDto
     {
         [JsonPropertyName("questionId")]
@@ -66,6 +90,37 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         [JsonPropertyName("score")]
         public decimal Score { get; set; }
+
+        [JsonPropertyName("testCaseResults")]
+        public List<TestCaseEvaluationItemDto> TestCaseResults { get; set; } = new();
+    }
+
+    public sealed class RunCodeRequestDto
+    {
+        [Required]
+        public string QuestionId { get; set; } = string.Empty;
+
+        [Required]
+        public string Code { get; set; } = string.Empty;
+
+        public string Language { get; set; } = "python";
+
+        public string? CustomInput { get; set; }
+    }
+
+    public sealed class RunCodeResponseDto
+    {
+        public string Stdout { get; set; } = string.Empty;
+        public string Stderr { get; set; } = string.Empty;
+        public int ExitCode { get; set; }
+        public string? CompileOutput { get; set; }
+        public bool IsRateLimited { get; set; }
+        public bool IsError { get; set; }
+        public string? ErrorMessage { get; set; }
+        public long ExecutionTimeMs { get; set; }
+        public string? SampleInputUsed { get; set; }
+        public string? ExpectedOutput { get; set; }
+        public bool? SamplePassed { get; set; }
     }
 
     public sealed class SubmitAnswersRequestDto
