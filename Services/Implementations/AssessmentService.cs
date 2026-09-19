@@ -293,6 +293,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .FirstOrDefaultAsync(a => a.Id == dto.ApplicationId, cancellationToken);
             if (application != null)
             {
+                application.Status = "Assessment";
                 application.UpdatedAt = DateTime.UtcNow;
             }
 
@@ -359,7 +360,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     AssessmentId = s.AssessmentId,
                     AssessmentTitle = assessment?.Title ?? (!string.IsNullOrWhiteSpace(job?.Title) ? $"{job.Title} Skill Assessment" : "Technical Assessment"),
                     JobVacancyId = s.JobVacancyId,
-                    JobTitle = job?.Title ?? "Engineering Position",
+                    JobTitle = !string.IsNullOrWhiteSpace(job?.Title)
+                        ? job.Title
+                        : (!string.IsNullOrWhiteSpace(assessment?.Title)
+                            ? assessment.Title.Replace(" Skill Assessment", "").Replace(" Assessment", "")
+                            : "Engineering Position"),
                     CompanyName = job?.Company?.CompanyName ?? "Hiring Company",
                     Department = job?.Department ?? "Engineering",
                     TimeLimitMinutes = assessment?.TimeLimitMinutes ?? 60,

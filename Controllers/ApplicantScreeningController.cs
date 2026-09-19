@@ -93,7 +93,7 @@ namespace Skill_Hub_BackEnd.Controllers
             var companyId = GetCurrentCompanyId();
             if (companyId is null) return Unauthorized(new { message = "A company identifier is required." });
             if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
-                job => job.Id == jobId && job.CompanyId == companyId.Value,
+                job => job.Id == jobId && job.CompanyId == companyId.Value && job.Status != "Deleted",
                 cancellationToken))
                 return NotFound(new { message = "Job not found or access denied." });
 
@@ -128,7 +128,7 @@ namespace Skill_Hub_BackEnd.Controllers
             var companyId = GetCurrentCompanyId();
             if (companyId is null) return Unauthorized(new { message = "A company identifier is required." });
             if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
-                job => job.Id == jobId && job.CompanyId == companyId.Value,
+                job => job.Id == jobId && job.CompanyId == companyId.Value && job.Status != "Deleted",
                 cancellationToken))
                 return NotFound(new { message = "Job not found or access denied." });
 
@@ -166,12 +166,12 @@ namespace Skill_Hub_BackEnd.Controllers
                 return Unauthorized(new { message = "A company identifier is required." });
 
             if (!await _dbContext.JobVacancies.AsNoTracking().AnyAsync(
-                job => job.Id == jobId && job.CompanyId == companyId.Value, cancellationToken))
+                job => job.Id == jobId && job.CompanyId == companyId.Value && job.Status != "Deleted", cancellationToken))
                 return NotFound(new { message = "Job not found or access denied." });
 
             var applications = await _dbContext.JobApplications
                 .AsNoTracking()
-                .Where(a => a.JobId == jobId && a.Status == "Shortlisted")
+                .Where(a => a.JobId == jobId && (a.Status == "Shortlisted" || a.Status == "Assessment" || a.Status == "Interview"))
                 .Include(a => a.Candidate)
                 .OrderByDescending(a => a.UpdatedAt)
                 .ToListAsync(cancellationToken);
@@ -198,6 +198,11 @@ namespace Skill_Hub_BackEnd.Controllers
                     g => g.OrderByDescending(e => e.IsCurrent).FirstOrDefault(),
                     cancellationToken);
 
+            var submissionsMap = await _dbContext.Submissions
+                .AsNoTracking()
+                .Where(s => s.JobVacancyId == jobId && candidateIds.Contains(s.CandidateId))
+                .ToDictionaryAsync(s => s.CandidateId, s => s.Status, cancellationToken);
+
             var result = applications.Select(app =>
             {
                 var c = app.Candidate;
@@ -209,6 +214,11 @@ namespace Skill_Hub_BackEnd.Controllers
                         ? topExp.Title
                         : $"{topExp.Title} at {topExp.Company}";
                 headline ??= "Candidate Profile";
+
+                submissionsMap.TryGetValue(app.CandidateId, out var subStatus);
+                var assessmentStatus = subStatus != null
+                    ? (subStatus is "Submitted" or "Under_Review" or "Graded" or "Passed" or "Rejected" ? "Completed" : "Sent")
+                    : (app.Status == "Assessment" ? "Sent" : "None");
 
                 return new ShortlistedApplicantDto
                 {
@@ -226,6 +236,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     AppliedDate = app.AppliedDate,
                     ShortlistedAt = app.UpdatedAt,
                     AiMatchScore = aiScores.TryGetValue(app.CandidateId, out var score) ? score : null,
+                    AssessmentStatus = assessmentStatus,
                 };
             }).ToList();
 

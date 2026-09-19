@@ -43,7 +43,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var applications = await _dbContext.JobApplications
                 .AsNoTracking()
                 .AsSplitQuery()
-                .Where(application => application.JobId == jobId && (application.Status == "Applied" || application.Status == "Shortlisted"))
+                .Where(application => application.JobId == jobId && (application.Status == "Applied" || application.Status == "Shortlisted" || application.Status == "Assessment"))
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Skills)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Experiences)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Projects)

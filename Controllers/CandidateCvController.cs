@@ -417,7 +417,35 @@ namespace Skill_Hub_BackEnd.Controllers
                 .Include(a => a.Job)
                     .ThenInclude(j => j!.Company)
                 .OrderByDescending(a => a.AppliedDate)
-                .Select(a => new Skill_Hub_BackEnd.DTOs.Jobs.CandidateApplicationResponseDto
+                .ToListAsync();
+
+            var candidateSubmissions = await _dbContext.Submissions
+                .Where(s => s.CandidateId == userId.Value)
+                .Select(s => new { s.ApplicationId, s.JobVacancyId, s.IsSelectedForInterview, s.Status })
+                .ToListAsync();
+
+            var result = applications.Select(a =>
+            {
+                var submission = candidateSubmissions
+                    .FirstOrDefault(s => s.ApplicationId == a.Id || s.JobVacancyId == a.JobId);
+
+                var status = a.Status;
+                if (submission != null)
+                {
+                    if (submission.IsSelectedForInterview)
+                    {
+                        status = "Interview";
+                    }
+                    else if (!status.Equals("Interview", StringComparison.OrdinalIgnoreCase) &&
+                             !status.Equals("Offer", StringComparison.OrdinalIgnoreCase) &&
+                             !status.Equals("Hired", StringComparison.OrdinalIgnoreCase) &&
+                             !status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        status = "Assessment";
+                    }
+                }
+
+                return new Skill_Hub_BackEnd.DTOs.Jobs.CandidateApplicationResponseDto
                 {
                     ApplicationId = a.Id,
                     JobId = a.JobId,
@@ -428,11 +456,11 @@ namespace Skill_Hub_BackEnd.Controllers
                     CompanyName = a.Job != null && a.Job.Company != null ? a.Job.Company.CompanyName : "Skill Hub Partner",
                     CompanyLogoUrl = a.Job != null && a.Job.Company != null ? a.Job.Company.LogoUrl : null,
                     AppliedDate = a.AppliedDate,
-                    Status = a.Status
-                })
-                .ToListAsync();
+                    Status = status
+                };
+            }).ToList();
 
-            return Ok(applications);
+            return Ok(result);
         }
 
         // ==========================================

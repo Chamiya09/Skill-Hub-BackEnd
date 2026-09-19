@@ -51,5 +51,6 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         public DateTime AppliedDate { get; set; }
         public DateTime? ShortlistedAt { get; set; }
         public int? AiMatchScore { get; set; }
+        public string AssessmentStatus { get; set; } = "None";
     }
 }

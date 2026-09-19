@@ -95,7 +95,7 @@ namespace Skill_Hub_BackEnd.Controllers
             var companyName = company?.CompanyName ?? string.Empty;
 
             var jobs = await _dbContext.JobVacancies
-                .Where(j => j.CompanyId == companyId.Value)
+                .Where(j => j.CompanyId == companyId.Value && j.Status != "Deleted")
                 .OrderByDescending(j => j.CreatedAt)
                 .ToListAsync();
 
@@ -128,7 +128,7 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var job = await _dbContext.JobVacancies
                 .Include(j => j.Company)
-                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value);
+                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value && j.Status != "Deleted");
 
             if (job == null)
             {
@@ -164,7 +164,7 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var job = await _dbContext.JobVacancies
                 .Include(j => j.Company)
-                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value);
+                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value && j.Status != "Deleted");
 
             if (job == null)
             {
@@ -207,14 +207,57 @@ namespace Skill_Hub_BackEnd.Controllers
             }
 
             var job = await _dbContext.JobVacancies
-                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value);
+                .FirstOrDefaultAsync(j => j.Id == id && j.CompanyId == companyId.Value && j.Status != "Deleted");
 
             if (job == null)
             {
                 return NotFound(new { message = $"Job vacancy with ID '{id}' was not found or belongs to another company." });
             }
 
-            // CRUCIAL: Direct hard-delete from the database
+            // Check if any candidate has completed or submitted an assessment for this job vacancy
+            var hasCompletedSubmissions = await _dbContext.Submissions.AnyAsync(s =>
+                s.JobVacancyId == id &&
+                (s.Status == "Submitted" || s.Status == "Under_Review" || s.Status == "Graded" || s.Status == "Passed" || s.Status == "Rejected"));
+
+            if (hasCompletedSubmissions)
+            {
+                // Soft-delete the job vacancy so candidate completed assessment records,
+                // scorecards, feedback, and submission data remain permanently preserved!
+                job.Status = "Deleted";
+                job.UpdatedAt = DateTime.UtcNow;
+
+                // Archive any assessment templates for this job
+                var jobAssessments = await _dbContext.Assessments
+                    .Where(a => a.JobVacancyId == id && a.Status != "Archived")
+                    .ToListAsync();
+
+                foreach (var a in jobAssessments)
+                {
+                    a.Status = "Archived";
+                    a.UpdatedAt = DateTime.UtcNow;
+                }
+
+                // Remove only uncompleted/pending submissions for this deleted job
+                var incompleteSubmissions = await _dbContext.Submissions
+                    .Where(s => s.JobVacancyId == id &&
+                                s.Status != "Submitted" &&
+                                s.Status != "Under_Review" &&
+                                s.Status != "Graded" &&
+                                s.Status != "Passed" &&
+                                s.Status != "Rejected")
+                    .ToListAsync();
+
+                if (incompleteSubmissions.Count > 0)
+                {
+                    _dbContext.Submissions.RemoveRange(incompleteSubmissions);
+                }
+
+                await _dbContext.SaveChangesAsync();
+                _logger.LogInformation("Company {CompanyId} soft-deleted job vacancy {JobId} preserving completed assessments", companyId.Value, id);
+                return NoContent();
+            }
+
+            // No completed candidate assessments exist: clean hard-delete
             _dbContext.JobVacancies.Remove(job);
             await _dbContext.SaveChangesAsync();
 
@@ -250,7 +293,7 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var job = await _dbContext.JobVacancies
                 .Include(j => j.Company)
-                .FirstOrDefaultAsync(j => j.Id == jobId);
+                .FirstOrDefaultAsync(j => j.Id == jobId && j.Status != "Deleted");
 
             if (job == null)
             {
@@ -318,7 +361,7 @@ namespace Skill_Hub_BackEnd.Controllers
         public async Task<IActionResult> GetJobApplicants(Guid jobId)
         {
             var job = await _dbContext.JobVacancies
-                .FirstOrDefaultAsync(j => j.Id == jobId);
+                .FirstOrDefaultAsync(j => j.Id == jobId && j.Status != "Deleted");
 
             if (job == null)
             {
