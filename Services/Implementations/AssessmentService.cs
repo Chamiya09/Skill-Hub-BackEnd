@@ -460,12 +460,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new UnauthorizedAccessException("You are not authorized to run code for this assessment.");
 
             var questions = DeserializeQuestions(submission.Assessment?.FinalQuestions);
-            var question = questions.FirstOrDefault(q => string.Equals(q.Id, dto.QuestionId, StringComparison.OrdinalIgnoreCase));
+            var question = questions.FirstOrDefault(q =>
+                string.Equals(q.Id, dto.QuestionId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(q.Id?.Replace("-", ""), dto.QuestionId?.Replace("-", ""), StringComparison.OrdinalIgnoreCase))
+                ?? questions.FirstOrDefault();
 
             string stdin = dto.CustomInput ?? string.Empty;
             string? expectedOutput = null;
 
-            if (string.IsNullOrWhiteSpace(stdin) && question != null && question.SampleTestCases.Count > 0)
+            if (string.IsNullOrWhiteSpace(stdin) && question?.SampleTestCases != null && question.SampleTestCases.Count > 0)
             {
                 var firstSample = question.SampleTestCases[0];
                 stdin = firstSample.Input;
@@ -501,6 +504,48 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ExpectedOutput = expectedOutput,
                 SamplePassed = samplePassed
             };
+        }
+
+        public async Task<bool> SaveDraftAnswersAsync(
+            Guid submissionId,
+            SaveDraftAnswersRequestDto dto,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(dto);
+
+            var submission = await _dbContext.Submissions
+                .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
+
+            if (submission == null) return false;
+
+            if (candidateId.HasValue && submission.CandidateId != candidateId.Value)
+                throw new UnauthorizedAccessException("You are not authorized to update this exam draft.");
+
+            if (submission.Status != "Assigned" && submission.Status != "Started" && submission.Status != "In_Progress")
+                return false;
+
+            if (submission.Status == "Assigned")
+            {
+                submission.Status = "Started";
+                submission.StartedAt ??= DateTime.UtcNow;
+            }
+
+            if (dto.Answers != null && dto.Answers.Count > 0)
+            {
+                submission.Answers = JsonSerializer.Serialize(dto.Answers, JsonOpts);
+            }
+
+            if (dto.RemainingSeconds.HasValue)
+            {
+                var proctor = DeserializeProctorSummary(submission.ProctorFlags);
+                proctor.RemainingSeconds = dto.RemainingSeconds.Value;
+                submission.ProctorFlags = JsonSerializer.Serialize(proctor, JsonOpts);
+            }
+
+            submission.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
         }
 
         public async Task<SubmissionDetailDto> SubmitAnswersAsync(
@@ -941,13 +986,32 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 Order = q.Order
             }).OrderBy(q => q.Order).ToList();
 
+            var proctor = DeserializeProctorSummary(submission.ProctorFlags);
+            int totalSeconds = (submission.Assessment?.TimeLimitMinutes ?? 60) * 60;
+            int? remainingSeconds = null;
+
+            if (proctor.RemainingSeconds.HasValue)
+            {
+                remainingSeconds = proctor.RemainingSeconds.Value;
+            }
+            else if (submission.StartedAt.HasValue)
+            {
+                var elapsed = (int)(DateTime.UtcNow - submission.StartedAt.Value).TotalSeconds;
+                remainingSeconds = Math.Max(0, totalSeconds - elapsed);
+            }
+
+            var draftAnswers = DeserializeAnswers(submission.Answers);
+
             return new StartExamResponseDto
             {
                 SubmissionId = submission.Id,
                 AssessmentId = submission.AssessmentId,
                 AssessmentTitle = submission.Assessment?.Title ?? "Technical Assessment",
                 TimeLimitMinutes = submission.Assessment?.TimeLimitMinutes ?? 60,
-                StartedAt = submission.StartedAt ?? DateTime.UtcNow,
+                StartedAt = submission.StartedAt,
+                Status = submission.Status,
+                RemainingSeconds = remainingSeconds,
+                DraftAnswers = draftAnswers.Count > 0 ? draftAnswers : null,
                 Questions = sanitizedQuestions
             };
         }

@@ -75,6 +75,12 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid? candidateId = null,
             CancellationToken cancellationToken = default);
 
+        Task<bool> SaveDraftAnswersAsync(
+            Guid submissionId,
+            SaveDraftAnswersRequestDto dto,
+            Guid? candidateId = null,
+            CancellationToken cancellationToken = default);
+
         Task<SubmissionDetailDto> SubmitAnswersAsync(
             Guid submissionId,
             SubmitAnswersRequestDto answersDto,

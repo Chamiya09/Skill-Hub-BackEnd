@@ -43,7 +43,10 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public Guid AssessmentId { get; set; }
         public string AssessmentTitle { get; set; } = string.Empty;
         public int TimeLimitMinutes { get; set; }
-        public DateTime StartedAt { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public string Status { get; set; } = "Assigned";
+        public int? RemainingSeconds { get; set; }
+        public List<SubmittedAnswerItemDto>? DraftAnswers { get; set; }
         public List<CandidateCodingQuestionDto> Questions { get; set; } = new();
     }
 
@@ -129,6 +132,15 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public List<SubmittedAnswerItemDto> Answers { get; set; } = new();
     }
 
+    public sealed class SaveDraftAnswersRequestDto
+    {
+        [JsonPropertyName("remainingSeconds")]
+        public int? RemainingSeconds { get; set; }
+
+        [JsonPropertyName("answers")]
+        public List<SubmittedAnswerItemDto> Answers { get; set; } = new();
+    }
+
     public sealed class ProctorEventRequestDto
     {
         [JsonPropertyName("eventType")]
@@ -148,6 +160,9 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         [JsonPropertyName("windowBlurs")]
         public int WindowBlurs { get; set; }
+
+        [JsonPropertyName("remainingSeconds")]
+        public int? RemainingSeconds { get; set; }
 
         [JsonPropertyName("events")]
         public List<ProctorEventRequestDto> Events { get; set; } = new();

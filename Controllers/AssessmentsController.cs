@@ -276,6 +276,29 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Autosaves draft answers and remaining exam timer so candidate can resume seamlessly.
+        /// </summary>
+        [HttpPost("take/{submissionId:guid}/draft")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<IActionResult> SaveDraftAnswers(
+            Guid submissionId,
+            [FromBody] SaveDraftAnswersRequestDto dto,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var candidateId = GetCandidateId();
+                var saved = await _assessmentService.SaveDraftAnswersAsync(submissionId, dto, candidateId, cancellationToken);
+                if (!saved) return NotFound(new { message = "Submission not found or already completed." });
+                return Ok(new { success = true });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Candidate submits code solutions. Triggers auto-grading and evaluates passing threshold.
         /// </summary>
         [HttpPost("take/{submissionId:guid}/submit")]

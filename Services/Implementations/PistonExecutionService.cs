@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -15,6 +16,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         private readonly IConfiguration _configuration;
         private readonly ILogger<PistonExecutionService> _logger;
         private const string DefaultPistonExecuteUrl = "https://emkc.org/api/v2/piston/execute";
+        private const int DefaultExecutionTimeoutMs = 5000; // 5 seconds strict timeout
 
         private static readonly JsonSerializerOptions JsonOpts = new()
         {
@@ -70,7 +72,36 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             string? stdin = null,
             CancellationToken cancellationToken = default)
         {
+            var executionId = Guid.NewGuid().ToString("N");
             var (runtimeLang, version) = ResolveRuntime(language);
+
+            // =========================================================================
+            // LAYER 1: Security Code Validation Guard
+            // =========================================================================
+            var securityCheck = CodeSecurityValidator.Validate(code, runtimeLang);
+            if (!securityCheck.IsAllowed)
+            {
+                _logger.LogWarning("Security violation for execution {Id} in {Language}: {Reason}",
+                    executionId, runtimeLang, securityCheck.ViolationReason);
+
+                await WriteAuditLogAsync(
+                    executionId,
+                    runtimeLang,
+                    code,
+                    status: "SECURITY_BLOCKED",
+                    exitCode: 1,
+                    durationMs: 0,
+                    details: securityCheck.ViolationReason);
+
+                return new PistonExecuteResult
+                {
+                    IsError = true,
+                    ExitCode = 1,
+                    ErrorMessage = securityCheck.ViolationReason,
+                    Stderr = securityCheck.ViolationReason ?? "Security Violation",
+                    ExecutionTimeMs = 0
+                };
+            }
 
             // Read configuration options
             var customPistonUrl = _configuration["ExecutionEngine:PistonUrl"];
@@ -80,19 +111,41 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             bool hasCustomPiston = !string.IsNullOrWhiteSpace(customPistonUrl) || !string.IsNullOrWhiteSpace(apiKey);
             bool shouldTryLocalFirst = preferLocal || !hasCustomPiston;
 
-            // If local execution is preferred or no custom Piston host/key is specified, execute locally directly
+            // =========================================================================
+            // LAYER 2: Isolated Local Execution Engine
+            // =========================================================================
             if (shouldTryLocalFirst && IsLocalLanguageSupported(runtimeLang))
             {
                 try
                 {
-                    _logger.LogInformation("Executing code locally for language: {Language}", runtimeLang);
-                    return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                    _logger.LogInformation("Executing code locally in sandbox for {Language} (ID: {Id})", runtimeLang, executionId);
+                    var localResult = await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
+
+                    await WriteAuditLogAsync(
+                        executionId,
+                        runtimeLang,
+                        code,
+                        status: localResult.IsError ? "FAILED" : "SUCCESS",
+                        exitCode: localResult.ExitCode,
+                        durationMs: localResult.ExecutionTimeMs,
+                        details: localResult.ErrorMessage);
+
+                    return localResult;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Local execution encountered an exception. Falling back to remote execution...");
+                    _logger.LogWarning(ex, "Local sandbox execution encountered an exception. Falling back to remote execution...");
                     if (!hasCustomPiston)
                     {
+                        await WriteAuditLogAsync(
+                            executionId,
+                            runtimeLang,
+                            code,
+                            status: "INTERNAL_ERROR",
+                            exitCode: 1,
+                            durationMs: 0,
+                            details: ex.Message);
+
                         return new PistonExecuteResult
                         {
                             IsError = true,
@@ -102,7 +155,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 }
             }
 
-            // Fall back to Piston remote API
+            // =========================================================================
+            // LAYER 3: Remote Piston Fallback (if configured)
+            // =========================================================================
             var targetUrl = !string.IsNullOrWhiteSpace(customPistonUrl) ? customPistonUrl : DefaultPistonExecuteUrl;
             var filename = GetFileNameForLanguage(runtimeLang);
 
@@ -116,7 +171,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 },
                 Stdin = stdin ?? string.Empty,
                 CompileTimeout = 10000,
-                RunTimeout = 5000
+                RunTimeout = DefaultExecutionTimeoutMs
             };
 
             var jsonContent = JsonSerializer.Serialize(requestPayload, JsonOpts);
@@ -141,13 +196,21 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
                     var response = await _httpClient.SendAsync(requestMessage, cancellationToken);
 
-                    // If public Piston requires whitelist / token (HTTP 401 or 403), seamlessly fall back to local execution
                     if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
                     {
                         _logger.LogWarning("Remote Piston returned HTTP {StatusCode}. Falling back to local execution engine.", response.StatusCode);
                         if (IsLocalLanguageSupported(runtimeLang))
                         {
-                            return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                            var fallbackResult = await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
+                            await WriteAuditLogAsync(
+                                executionId,
+                                runtimeLang,
+                                code,
+                                status: fallbackResult.IsError ? "FAILED" : "SUCCESS",
+                                exitCode: fallbackResult.ExitCode,
+                                durationMs: fallbackResult.ExecutionTimeMs,
+                                details: fallbackResult.ErrorMessage);
+                            return fallbackResult;
                         }
 
                         var errText = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -173,7 +236,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         if (IsLocalLanguageSupported(runtimeLang))
                         {
                             _logger.LogWarning("Piston rate limited. Falling back to local execution engine.");
-                            return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                            var fallbackResult = await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
+                            return fallbackResult;
                         }
 
                         stopwatch.Stop();
@@ -191,7 +255,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         if (IsLocalLanguageSupported(runtimeLang))
                         {
                             _logger.LogWarning("Piston failed with status {Code}. Falling back to local execution engine.", response.StatusCode);
-                            return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                            var fallbackResult = await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
+                            return fallbackResult;
                         }
 
                         var errText = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -224,7 +289,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     var runStderr = pistonResp.Run?.Stderr ?? string.Empty;
                     var exitCode = pistonResp.Run?.Code ?? (pistonResp.Compile?.Code ?? 0);
 
-                    return new PistonExecuteResult
+                    var result = new PistonExecuteResult
                     {
                         Stdout = runStdout,
                         Stderr = runStderr,
@@ -233,6 +298,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         IsError = exitCode != 0 || !string.IsNullOrWhiteSpace(compileErr),
                         ExecutionTimeMs = stopwatch.ElapsedMilliseconds
                     };
+
+                    await WriteAuditLogAsync(
+                        executionId,
+                        runtimeLang,
+                        code,
+                        status: result.IsError ? "FAILED" : "SUCCESS",
+                        exitCode: result.ExitCode,
+                        durationMs: result.ExecutionTimeMs,
+                        details: compileErr ?? result.ErrorMessage);
+
+                    return result;
                 }
                 catch (OperationCanceledException)
                 {
@@ -251,7 +327,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     if (IsLocalLanguageSupported(runtimeLang))
                     {
                         _logger.LogWarning(ex, "Failed to reach Piston after retries. Falling back to local execution engine.");
-                        return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                        var fallbackResult = await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
+                        return fallbackResult;
                     }
 
                     stopwatch.Stop();
@@ -267,7 +344,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (IsLocalLanguageSupported(runtimeLang))
             {
-                return await ExecuteLocallyAsync(code, runtimeLang, stdin, cancellationToken);
+                return await ExecuteLocallyAsync(executionId, code, runtimeLang, stdin, cancellationToken);
             }
 
             stopwatch.Stop();
@@ -289,13 +366,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         }
 
         private async Task<PistonExecuteResult> ExecuteLocallyAsync(
+            string executionId,
             string code,
             string runtimeLang,
             string? stdin,
             CancellationToken cancellationToken)
         {
             var sw = Stopwatch.StartNew();
-            var tempDir = Path.Combine(Path.GetTempPath(), "skillhub_exec_" + Guid.NewGuid().ToString("N"));
+            // Isolated per-execution sandbox folder
+            var tempDir = Path.Combine(Path.GetTempPath(), "skillhub_sandbox_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
 
             try
@@ -306,7 +385,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     {
                         var filePath = Path.Combine(tempDir, "solution.py");
                         await File.WriteAllTextAsync(filePath, code, Utf8WithoutBom, cancellationToken);
-                        var run = await RunProcessAsync("python", "-u solution.py", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync("python", "-u solution.py", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -323,7 +402,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     {
                         var filePath = Path.Combine(tempDir, "solution.js");
                         await File.WriteAllTextAsync(filePath, code, Utf8WithoutBom, cancellationToken);
-                        var run = await RunProcessAsync("node", "solution.js", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync("node", "solution.js", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -340,7 +419,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     {
                         var filePath = Path.Combine(tempDir, "solution.ts");
                         await File.WriteAllTextAsync(filePath, code, Utf8WithoutBom, cancellationToken);
-                        var run = await RunProcessAsync("node", "--experimental-strip-types solution.ts", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync("node", "--experimental-strip-types solution.ts", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -376,7 +455,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                             };
                         }
 
-                        var run = await RunProcessAsync(outExe, "", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync(outExe, "", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -409,7 +488,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                             };
                         }
 
-                        var run = await RunProcessAsync("java", "-cp . Solution", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync("java", "-cp . Solution", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -443,7 +522,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                             };
                         }
 
-                        var run = await RunProcessAsync(outExe, "", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync(outExe, "", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -461,7 +540,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         var filePath = Path.Combine(tempDir, "main.go");
                         await File.WriteAllTextAsync(filePath, code, Utf8WithoutBom, cancellationToken);
 
-                        var run = await RunProcessAsync("go", "run main.go", tempDir, stdin, 7000, cancellationToken);
+                        var run = await RunProcessAsync("go", "run main.go", tempDir, stdin, DefaultExecutionTimeoutMs, cancellationToken);
                         sw.Stop();
                         return new PistonExecuteResult
                         {
@@ -488,6 +567,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }
             finally
             {
+                // Guaranteed cleanup of isolated temp directory
                 try
                 {
                     if (Directory.Exists(tempDir))
@@ -495,9 +575,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         Directory.Delete(tempDir, recursive: true);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore temp directory deletion errors
+                    _logger.LogWarning(ex, "Failed to clean up sandbox directory: {Dir}", tempDir);
                 }
             }
         }
@@ -517,7 +597,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             string arguments,
             string workingDirectory,
             string? stdin = null,
-            int timeoutMs = 7000,
+            int timeoutMs = DefaultExecutionTimeoutMs,
             CancellationToken cancellationToken = default)
         {
             var sw = Stopwatch.StartNew();
@@ -588,6 +668,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ElapsedMs = sw.ElapsedMilliseconds
                 };
             }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                sw.Stop();
+                return new ProcessExecutionResult
+                {
+                    ExitCode = 127,
+                    Stderr = $"Runtime executable '{fileName}' was not found on the host system.",
+                    ErrorMessage = $"Runtime executable '{fileName}' was not found on the host system. Please ensure it is installed and added to PATH, or configure a self-hosted Piston URL in appsettings.json.",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                };
+            }
             catch (Exception ex)
             {
                 sw.Stop();
@@ -598,6 +689,38 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ErrorMessage = $"Process execution error: {ex.Message}",
                     ElapsedMs = sw.ElapsedMilliseconds
                 };
+            }
+        }
+
+        private async Task WriteAuditLogAsync(
+            string executionId,
+            string language,
+            string code,
+            string status,
+            int exitCode,
+            long durationMs,
+            string? details = null)
+        {
+            try
+            {
+                var logDir = Path.Combine(AppContext.BaseDirectory, "Logs");
+                Directory.CreateDirectory(logDir);
+                var logFile = Path.Combine(logDir, "execution_audit.log");
+
+                using var sha256 = SHA256.Create();
+                var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(code ?? string.Empty));
+                var hashStr = Convert.ToHexString(hashBytes)[..12];
+
+                var snippet = (code ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+                if (snippet.Length > 80) snippet = snippet[..80] + "...";
+
+                var logLine = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff UTC}] ID={executionId} LANG={language} HASH={hashStr} STATUS={status} EXIT={exitCode} TIME={durationMs}ms DETAILS={details ?? "N/A"} SNIPPET=\"{snippet}\"";
+
+                await File.AppendAllTextAsync(logFile, logLine + Environment.NewLine, Utf8WithoutBom);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to write audit log for execution {Id}", executionId);
             }
         }
 
@@ -619,7 +742,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             public int CompileTimeout { get; set; } = 10000;
 
             [JsonPropertyName("run_timeout")]
-            public int RunTimeout { get; set; } = 5000;
+            public int RunTimeout { get; set; } = DefaultExecutionTimeoutMs;
         }
 
         private sealed class PistonFileItem
