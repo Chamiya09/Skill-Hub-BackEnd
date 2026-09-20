@@ -31,6 +31,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Guid jobId,
             Guid companyId,
             bool forceRefresh = false,
+            bool runAiAnalysis = true,
             CancellationToken cancellationToken = default)
         {
             var job = await _dbContext.JobVacancies
@@ -104,7 +105,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     BuildPayload(application.Candidate!, job)))
                 .ToList();
 
-            if (pending.Count > 0)
+            if (runAiAnalysis && pending.Count > 0)
             {
                 using var gate = new SemaphoreSlim(MaxConcurrentEvaluations);
                 var client = _httpClientFactory.CreateClient(JobRecommendationService.HttpClientName);

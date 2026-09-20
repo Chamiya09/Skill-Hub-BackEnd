@@ -40,7 +40,7 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 return Ok(await _screeningService.FetchAndRankApplicantsAsync(
-                    jobId, companyId.Value, forceRefresh, cancellationToken));
+                    jobId, companyId.Value, forceRefresh, runAiAnalysis: true, cancellationToken));
             }
             catch (KeyNotFoundException exception)
             {
@@ -69,7 +69,7 @@ namespace Skill_Hub_BackEnd.Controllers
             try
             {
                 return Ok(await _screeningService.FetchAndRankApplicantsAsync(
-                    jobId, companyId.Value, forceRefresh: false, cancellationToken));
+                    jobId, companyId.Value, forceRefresh: false, runAiAnalysis: false, cancellationToken));
             }
             catch (KeyNotFoundException exception)
             {
