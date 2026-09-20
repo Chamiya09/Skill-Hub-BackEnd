@@ -58,14 +58,22 @@ if (builder.Environment.IsDevelopment() &&
 // ==========================================
 // 1. DATABASE & EF CORE (POSTGRESQL / NEONDB)
 // ==========================================
+// NeonDB-aware configuration:
+//   • Pooling=false in the connection string disables Npgsql pooling so NeonDB's
+//     PgBouncer pooler (Transaction mode) handles connection multiplexing.
+//     Npgsql's built-in pooling is incompatible with PgBouncer Transaction mode
+//     because it uses prepared statements and session-level state.
+//   • EnableRetryOnFailure with a higher maxRetryCount covers NeonDB's 500ms–3s
+//     serverless cold-start wakeup window where connections time out transiently.
+//   • CommandTimeout(90) gives long-running AI-pipeline EF queries enough headroom.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsqlOptions =>
     {
         npgsqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 5,
-            maxRetryDelay: TimeSpan.FromSeconds(10),
+            maxRetryCount: 8,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
             errorCodesToAdd: null);
-        npgsqlOptions.CommandTimeout(60);
+        npgsqlOptions.CommandTimeout(90);
     }));
 
 // ==========================================
@@ -79,6 +87,10 @@ builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+// ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
+builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
+// ── NeonDB Serverless Warm-up & Keep-Alive (prevents cold-start TimeoutExceptions) ──
+builder.Services.AddHostedService<NeonDbWarmupService>();
 builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -582,7 +594,31 @@ using (var scope = app.Services.CreateScope())
             @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewerFeedback"" text;",
             @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewedBy"" uuid;",
             @"ALTER TABLE public.""Assessments"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;",
-            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;"
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;",
+
+            // ── CvEvaluationResults (Agentic CV Evaluation — Multi-Agent Pipeline) ─
+            @"CREATE TABLE IF NOT EXISTS public.""CvEvaluationResults"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users""(""Id"") ON DELETE CASCADE,
+                ""JobId"" uuid NOT NULL REFERENCES public.""JobVacancies""(""Id"") ON DELETE CASCADE,
+                ""ApplicationId"" uuid,
+                ""MatchScore"" integer NOT NULL DEFAULT 0 CHECK (""MatchScore"" BETWEEN 0 AND 100),
+                ""StrengthsJson"" jsonb,
+                ""MissingSkillsJson"" jsonb,
+                ""Recommendation"" text,
+                ""ExtractedDataJson"" jsonb,
+                ""ValidationNotesJson"" jsonb,
+                ""ApprovalStatus"" character varying(20) NOT NULL DEFAULT 'Pending',
+                ""ReviewerNotes"" text,
+                ""ApprovedByUserId"" uuid,
+                ""ApprovedAt"" timestamp with time zone,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CvEvaluationResults_Candidate_Job_Date""
+                ON public.""CvEvaluationResults"" (""CandidateId"", ""JobId"", ""CreatedAt"" DESC);",
+            @"CREATE INDEX IF NOT EXISTS ""IX_CvEvaluationResults_ApprovalStatus""
+                ON public.""CvEvaluationResults"" (""ApprovalStatus"");"
         };
 
         foreach (var ddl in ddlStatements)
