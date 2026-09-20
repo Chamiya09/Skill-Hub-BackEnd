@@ -403,14 +403,24 @@ using (var scope = app.Services.CreateScope())
                 ""Status"" character varying(50) NOT NULL DEFAULT 'Active',
                 ""Description"" text NOT NULL,
                 ""WhatWeOffer"" text,
+                ""Deadline"" timestamp with time zone,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
 
-            // 3b. Indexes on JobVacancies
+            // 3b. Ensure Deadline column exists on JobVacancies table for existing databases
+            @"DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'JobVacancies' AND column_name = 'Deadline') THEN
+                    ALTER TABLE public.""JobVacancies"" ADD COLUMN ""Deadline"" timestamp with time zone;
+                END IF;
+            END $$;",
+
+            // 3c. Indexes on JobVacancies
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CompanyId"" ON public.""JobVacancies"" (""CompanyId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Status"" ON public.""JobVacancies"" (""Status"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Deadline"" ON public.""JobVacancies"" (""Deadline"");",
 
             // 4. CandidateExperiences Table
             @"CREATE TABLE IF NOT EXISTS public.""CandidateExperiences"" (

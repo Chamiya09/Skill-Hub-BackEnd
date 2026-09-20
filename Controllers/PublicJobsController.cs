@@ -37,7 +37,7 @@ namespace Skill_Hub_BackEnd.Controllers
         {
             var query = _dbContext.JobVacancies
                 .Include(j => j.Company)
-                .Where(j => j.Status == "Active")
+                .Where(j => j.Status == "Active" && (!j.Deadline.HasValue || j.Deadline.Value >= DateTime.UtcNow))
                 .AsQueryable();
 
             if (companyId.HasValue && companyId.Value != Guid.Empty)
@@ -96,6 +96,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 Status = j.Status,
                 Description = j.Description,
                 WhatWeOffer = j.WhatWeOffer,
+                Deadline = j.Deadline,
                 CreatedAt = j.CreatedAt,
                 UpdatedAt = j.UpdatedAt
             });
@@ -135,6 +136,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 Status = job.Status,
                 Description = job.Description,
                 WhatWeOffer = job.WhatWeOffer,
+                Deadline = job.Deadline,
                 CreatedAt = job.CreatedAt,
                 UpdatedAt = job.UpdatedAt
             };
@@ -181,7 +183,7 @@ namespace Skill_Hub_BackEnd.Controllers
             }
 
             var jobs = await _dbContext.JobVacancies
-                .Where(j => j.CompanyId == company.Id && j.Status == "Active")
+                .Where(j => j.CompanyId == company.Id && j.Status == "Active" && (!j.Deadline.HasValue || j.Deadline.Value >= DateTime.UtcNow))
                 .OrderByDescending(j => j.CreatedAt)
                 .Select(j => new JobResponseDto
                 {
@@ -197,6 +199,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     Status = j.Status,
                     Description = j.Description,
                     WhatWeOffer = j.WhatWeOffer,
+                    Deadline = j.Deadline,
                     CreatedAt = j.CreatedAt,
                     UpdatedAt = j.UpdatedAt
                 })

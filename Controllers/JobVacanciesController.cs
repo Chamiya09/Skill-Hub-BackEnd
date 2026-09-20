@@ -63,6 +63,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 Status = string.IsNullOrWhiteSpace(dto.Status) ? "Active" : dto.Status.Trim(),
                 Description = dto.Description,
                 WhatWeOffer = dto.WhatWeOffer,
+                Deadline = dto.Deadline.HasValue ? DateTime.SpecifyKind(dto.Deadline.Value, DateTimeKind.Utc) : null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -180,6 +181,7 @@ namespace Skill_Hub_BackEnd.Controllers
             job.Status = string.IsNullOrWhiteSpace(dto.Status) ? "Active" : dto.Status.Trim();
             job.Description = dto.Description;
             job.WhatWeOffer = dto.WhatWeOffer;
+            job.Deadline = dto.Deadline.HasValue ? DateTime.SpecifyKind(dto.Deadline.Value, DateTimeKind.Utc) : null;
             job.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync();
@@ -303,6 +305,11 @@ namespace Skill_Hub_BackEnd.Controllers
             if (job.Status.Equals("Closed", StringComparison.OrdinalIgnoreCase))
             {
                 return BadRequest(new { message = "This job vacancy is closed and no longer accepting applications." });
+            }
+
+            if (job.Deadline.HasValue && job.Deadline.Value < DateTime.UtcNow)
+            {
+                return BadRequest(new { message = "The deadline for this job vacancy has passed. Applications are no longer accepted." });
             }
 
             // Check if already applied
@@ -566,6 +573,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 Status = job.Status,
                 Description = job.Description,
                 WhatWeOffer = job.WhatWeOffer,
+                Deadline = job.Deadline,
                 ApplicantsCount = applicantsCount,
                 CreatedAt = job.CreatedAt,
                 UpdatedAt = job.UpdatedAt

@@ -35,5 +35,7 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
         public string Description { get; set; } = string.Empty;
 
         public string? WhatWeOffer { get; set; }
+
+        public DateTime? Deadline { get; set; }
     }
 }
