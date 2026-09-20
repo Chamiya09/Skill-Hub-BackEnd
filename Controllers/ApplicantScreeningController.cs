@@ -219,7 +219,7 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var applications = await _dbContext.JobApplications
                 .AsNoTracking()
-                .Where(a => a.JobId == jobId && (a.Status == "Shortlisted" || a.Status == "Assessment" || a.Status == "Interview"))
+                .Where(a => a.JobId == jobId && (a.Status == "Shortlisted" || a.Status == "Assessment" || a.Status == "Assessment_Reviewed" || a.Status == "Interview"))
                 .Include(a => a.Candidate)
                 .OrderByDescending(a => a.UpdatedAt)
                 .ToListAsync(cancellationToken);
@@ -266,7 +266,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 submissionsMap.TryGetValue(app.CandidateId, out var subStatus);
                 var assessmentStatus = subStatus != null
                     ? (subStatus is "Submitted" or "Under_Review" or "Graded" or "Passed" or "Rejected" ? "Completed" : "Sent")
-                    : (app.Status == "Assessment" ? "Sent" : "None");
+                    : (app.Status == "Assessment" || app.Status == "Assessment_Reviewed" ? "Sent" : "None");
 
                 return new ShortlistedApplicantDto
                 {

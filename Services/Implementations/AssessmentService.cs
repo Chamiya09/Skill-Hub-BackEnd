@@ -879,6 +879,23 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 submission.Answers = JsonSerializer.Serialize(existingAnswers, JsonOpts);
             }
 
+            // Update the corresponding JobApplication status so candidate is removed from initial AI Screening
+            var application = await _dbContext.JobApplications
+                .FirstOrDefaultAsync(a => a.Id == submission.ApplicationId || (a.JobId == submission.JobVacancyId && a.CandidateId == submission.CandidateId), cancellationToken);
+
+            if (application != null)
+            {
+                if (dto.IsSelectedForInterview)
+                {
+                    application.Status = "Interview";
+                }
+                else
+                {
+                    application.Status = "Assessment_Reviewed";
+                }
+                application.UpdatedAt = DateTime.UtcNow;
+            }
+
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
