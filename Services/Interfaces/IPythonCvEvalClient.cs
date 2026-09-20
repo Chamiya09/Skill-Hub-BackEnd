@@ -25,6 +25,7 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
         Task<PythonCvEvalResponse> EvaluateAsync(
             string cvText,
             string jobDescription,
+            string requiredSkills,
             CancellationToken cancellationToken = default);
     }
 

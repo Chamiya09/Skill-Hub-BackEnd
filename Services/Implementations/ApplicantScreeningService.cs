@@ -14,16 +14,16 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         private const int MaxConcurrentEvaluations = 3;
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
         private readonly ApplicationDbContext _dbContext;
-        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IAgenticCvService _agenticCvService;
         private readonly ILogger<ApplicantScreeningService> _logger;
 
         public ApplicantScreeningService(
             ApplicationDbContext dbContext,
-            IHttpClientFactory httpClientFactory,
+            IAgenticCvService agenticCvService,
             ILogger<ApplicantScreeningService> logger)
         {
             _dbContext = dbContext;
-            _httpClientFactory = httpClientFactory;
+            _agenticCvService = agenticCvService;
             _logger = logger;
         }
 
@@ -94,8 +94,33 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             // Build lookup dictionaries for score
             var cachedScores = cachedResults.ToDictionary(r => r.CandidateId, r => r.MatchScore);
 
-            // AI analysis is now handled individually through the Candidate Evaluation Dashboard
-            // using the AgenticCvService instead of batch processing here.
+            if (runAiAnalysis)
+            {
+                var candidatesToAnalyze = applications.Where(a => !cachedScores.ContainsKey(a.CandidateId)).ToList();
+                
+                foreach (var application in candidatesToAnalyze)
+                {
+                    try
+                    {
+                        var result = await _agenticCvService.AnalyzeCvAsync(
+                            new DTOs.CvEvaluation.AnalyzeCvRequestDto
+                            {
+                                CandidateId = application.CandidateId,
+                                JobId = jobId,
+                                ApplicationId = application.Id,
+                                ForceRefresh = false
+                            },
+                            companyId,
+                            cancellationToken);
+                            
+                        cachedScores[application.CandidateId] = result.MatchScore;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to analyze CV for candidate {CandidateId}", application.CandidateId);
+                    }
+                }
+            }
 
             return applications
                 .Select(application => MapApplicant(

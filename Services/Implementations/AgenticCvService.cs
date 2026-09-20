@@ -49,13 +49,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ?? throw new KeyNotFoundException($"Candidate {candidateId} not found.");
 
             // ── STEP 2: Load structured CV data (parallel queries for performance) ─
-            var skillsTask        = _db.CandidateSkills.Where(s => s.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
-            var experienceTask    = _db.CandidateExperiences.Where(e => e.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
-            var educationTask     = _db.CandidateEducations.Where(e => e.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
-            var projectsTask      = _db.CandidateProjects.Where(p => p.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
-            var certsTask         = _db.CandidateCertifications.Where(c => c.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
-
-            await Task.WhenAll(skillsTask, experienceTask, educationTask, projectsTask, certsTask);
+            var skills        = await _db.CandidateSkills.Where(s => s.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
+            var experience    = await _db.CandidateExperiences.Where(e => e.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
+            var education     = await _db.CandidateEducations.Where(e => e.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
+            var projects      = await _db.CandidateProjects.Where(p => p.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
+            var certs         = await _db.CandidateCertifications.Where(c => c.UserId == candidateId).AsNoTracking().ToListAsync(cancellationToken);
 
             // ── STEP 3: Load the job vacancy for requirement context ───────────────
             var job = await _db.JobVacancies
@@ -65,7 +63,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             _logger.LogInformation(
                 "[AgentExtractor] Extracted {SkillCount} skills, {ExpCount} experience records for CandidateId={CandidateId}",
-                skillsTask.Result.Count, experienceTask.Result.Count, candidateId);
+                skills.Count, experience.Count, candidateId);
 
             // ── STEP 4: Assemble structured payload ───────────────────────────────
             return new ExtractedCandidateData
@@ -73,17 +71,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CandidateName     = candidate.FullName ?? $"{candidate.FirstName} {candidate.LastName}".Trim(),
                 Headline          = candidate.Headline ?? string.Empty,
                 Location          = candidate.Location ?? string.Empty,
-                Skills            = skillsTask.Result.Select(s => s.SkillName).Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
-                ExperienceSummary = experienceTask.Result
+                Skills            = skills.Select(s => s.SkillName).Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
+                ExperienceSummary = experience
                     .Select(e => $"{e.Title} at {e.Company} ({e.StartDate} – {(e.IsCurrent ? "Present" : e.EndDate ?? "N/A")}): {e.Description ?? string.Empty}")
                     .ToList(),
-                EducationSummary  = educationTask.Result
+                EducationSummary  = education
                     .Select(e => $"{e.Degree} in {e.FieldOfStudy ?? "General"} from {e.Institution} ({e.StartYear} – {e.EndYear ?? "Present"})")
                     .ToList(),
-                ProjectSummary    = projectsTask.Result
+                ProjectSummary    = projects
                     .Select(p => $"{p.ProjectName} [{p.Role ?? "Contributor"}]: {p.Description ?? string.Empty}")
                     .ToList(),
-                Certifications    = certsTask.Result.Select(c => $"{c.Title} ({c.IssuingOrganization})").Where(c => !string.IsNullOrWhiteSpace(c)).ToList(),
+                Certifications    = certs.Select(c => $"{c.Title} ({c.IssuingOrganization})").Where(c => !string.IsNullOrWhiteSpace(c)).ToList(),
                 JobTitle          = job.Title,
                 // JobVacancy has no RequiredSkills field — derive from Description + WhatWeOffer
                 JobDescription    = job.Description,
@@ -140,7 +138,7 @@ Title: {data.JobTitle}
 Required Skills: {data.RequiredSkills}
 Job Description: {data.JobDescription}";
 
-            return await _pythonClient.EvaluateAsync(cvText, jobDescription, cancellationToken);
+            return await _pythonClient.EvaluateAsync(cvText, jobDescription, data.RequiredSkills, cancellationToken);
         }
     }
 
