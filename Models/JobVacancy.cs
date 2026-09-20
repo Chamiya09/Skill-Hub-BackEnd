@@ -46,6 +46,8 @@ namespace Skill_Hub_BackEnd.Models
 
         public string? WhatWeOffer { get; set; }
 
+        public DateTime? Deadline { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

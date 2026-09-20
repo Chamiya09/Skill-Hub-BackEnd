@@ -31,6 +31,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Guid jobId,
             Guid companyId,
             bool forceRefresh = false,
+            bool runAiAnalysis = true,
             CancellationToken cancellationToken = default)
         {
             var job = await _dbContext.JobVacancies
@@ -40,10 +41,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     cancellationToken)
                 ?? throw new KeyNotFoundException("Job not found or access denied.");
 
+            // Candidates whose assessments have already been reviewed through the Performance Hub are automatically excluded from AI Screening
+            var reviewedCandidateIds = await _dbContext.Submissions
+                .AsNoTracking()
+                .Where(s => s.JobVacancyId == jobId &&
+                            (s.ReviewedBy != null || s.GradedAt != null || s.Status == "Graded" || s.Status == "Passed" || s.IsSelectedForInterview))
+                .Select(s => s.CandidateId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
             var applications = await _dbContext.JobApplications
                 .AsNoTracking()
                 .AsSplitQuery()
-                .Where(application => application.JobId == jobId && (application.Status == "Applied" || application.Status == "Shortlisted"))
+                .Where(application => application.JobId == jobId &&
+                                      !reviewedCandidateIds.Contains(application.CandidateId) &&
+                                      application.Status != "Assessment_Reviewed" &&
+                                      application.Status != "Interview" &&
+                                      application.Status != "Rejected" &&
+                                      (application.Status == "Applied" || application.Status == "Shortlisted" || application.Status == "Assessment"))
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Skills)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Experiences)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Projects)
@@ -90,7 +105,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     BuildPayload(application.Candidate!, job)))
                 .ToList();
 
-            if (pending.Count > 0)
+            if (runAiAnalysis && pending.Count > 0)
             {
                 using var gate = new SemaphoreSlim(MaxConcurrentEvaluations);
                 var client = _httpClientFactory.CreateClient(JobRecommendationService.HttpClientName);

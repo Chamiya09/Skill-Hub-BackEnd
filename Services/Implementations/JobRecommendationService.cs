@@ -47,7 +47,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var jobs = await _dbContext.JobVacancies
                 .AsNoTracking()
                 .Include(job => job.Company)
-                .Where(job => job.Status == "Active")
+                .Where(job => job.Status == "Active" && (!job.Deadline.HasValue || job.Deadline.Value >= DateTime.UtcNow))
                 .OrderByDescending(job => job.CreatedAt)
                 .Take(12)
                 .ToListAsync(cancellationToken);

@@ -21,6 +21,8 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<JobApplication> JobApplications => Set<JobApplication>();
         public DbSet<AiMatchResult> AiMatchResults => Set<AiMatchResult>();
         public DbSet<SavedJob> SavedJobs => Set<SavedJob>();
+        public DbSet<Assessment> Assessments => Set<Assessment>();
+        public DbSet<Submission> Submissions => Set<Submission>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -167,6 +169,44 @@ namespace Skill_Hub_BackEnd.Data
                       .WithMany(user => user.Certifications)
                       .HasForeignKey(c => c.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // Assessment Entity Configurations
+            modelBuilder.Entity<Assessment>(entity =>
+            {
+                entity.ToTable("Assessments", "public");
+                entity.HasIndex(a => a.JobVacancyId);
+                entity.HasIndex(a => a.CreatedBy);
+                entity.HasIndex(a => a.Status);
+
+                entity.Property(a => a.GeneratedQuestions).HasColumnType("jsonb");
+                entity.Property(a => a.FinalQuestions).HasColumnType("jsonb");
+                entity.Property(a => a.PassingThreshold).HasPrecision(5, 2);
+            });
+
+            // Submission Entity Configurations
+            modelBuilder.Entity<Submission>(entity =>
+            {
+                entity.ToTable("Submissions", "public");
+                entity.HasIndex(s => s.AssessmentId);
+                entity.HasIndex(s => s.CandidateId);
+                entity.HasIndex(s => s.ApplicationId);
+                entity.HasIndex(s => s.JobVacancyId);
+                entity.HasIndex(s => s.Status);
+
+                entity.Property(s => s.Answers).HasColumnType("jsonb");
+                entity.Property(s => s.ProctorFlags).HasColumnType("jsonb");
+                entity.Property(s => s.ExamScore).HasPrecision(5, 2);
+                entity.Property(s => s.CvScore).HasPrecision(5, 2);
+                entity.Property(s => s.FinalWeightedScore).HasPrecision(5, 2);
+                entity.Property(s => s.IsSelectedForInterview).HasDefaultValue(false);
+                entity.Property(s => s.ReviewerFeedback);
+                entity.Property(s => s.ReviewedBy);
+
+                entity.HasOne(s => s.Assessment)
+                      .WithMany(a => a.Submissions)
+                      .HasForeignKey(s => s.AssessmentId)
+                      .OnDelete(DeleteBehavior.Restrict);
             });
         }
     }

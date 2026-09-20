@@ -45,7 +45,7 @@ namespace Skill_Hub_BackEnd.Controllers
             var companyName = company?.CompanyName ?? string.Empty;
 
             var companyJobs = await _dbContext.JobVacancies
-                .Where(j => j.CompanyId == companyId)
+                .Where(j => j.CompanyId == companyId && j.Status != "Deleted")
                 .ToListAsync();
 
             var activeCount = companyJobs.Count(j => string.Equals(j.Status, "Active", StringComparison.OrdinalIgnoreCase));

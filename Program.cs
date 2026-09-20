@@ -78,6 +78,11 @@ builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
 builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
+builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
@@ -148,13 +153,25 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ==========================================
-// 5. CORS CONFIGURATION (REACT VITE FRONTEND)
+// 5. CORS CONFIGURATION (LOCAL WEB CLIENTS)
 // ==========================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+        // React/Vite and Flutter Web use different development ports. Trust
+        // localhost only, regardless of its temporary development port.
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                  {
+                      return false;
+                  }
+
+                  return uri.Scheme is "http" or "https" &&
+                         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                          uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -386,14 +403,24 @@ using (var scope = app.Services.CreateScope())
                 ""Status"" character varying(50) NOT NULL DEFAULT 'Active',
                 ""Description"" text NOT NULL,
                 ""WhatWeOffer"" text,
+                ""Deadline"" timestamp with time zone,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
 
-            // 3b. Indexes on JobVacancies
+            // 3b. Ensure Deadline column exists on JobVacancies table for existing databases
+            @"DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'JobVacancies' AND column_name = 'Deadline') THEN
+                    ALTER TABLE public.""JobVacancies"" ADD COLUMN ""Deadline"" timestamp with time zone;
+                END IF;
+            END $$;",
+
+            // 3c. Indexes on JobVacancies
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CompanyId"" ON public.""JobVacancies"" (""CompanyId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Status"" ON public.""JobVacancies"" (""Status"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_CreatedAt"" ON public.""JobVacancies"" (""CreatedAt"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_JobVacancies_Deadline"" ON public.""JobVacancies"" (""Deadline"");",
 
             // 4. CandidateExperiences Table
             @"CREATE TABLE IF NOT EXISTS public.""CandidateExperiences"" (
@@ -507,7 +534,55 @@ using (var scope = app.Services.CreateScope())
                 CONSTRAINT ""UQ_SavedJobs_CandidateId_JobId"" UNIQUE (""CandidateId"", ""JobId"")
             );",
             @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SavedJobs_CandidateId_JobId"" ON public.""SavedJobs"" (""CandidateId"", ""JobId"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_SavedJobs_JobId"" ON public.""SavedJobs"" (""JobId"");",
+
+            // 12. Technical Assessments (HITL Question Bank & Published Exam Templates)
+            @"CREATE TABLE IF NOT EXISTS public.""Assessments"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""JobVacancyId"" uuid NOT NULL,
+                ""Title"" character varying(250) NOT NULL,
+                ""GeneratedQuestions"" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                ""FinalQuestions"" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                ""PassingThreshold"" numeric(5,2) NOT NULL DEFAULT 60.00,
+                ""TimeLimitMinutes"" integer NOT NULL DEFAULT 60,
+                ""CreatedBy"" uuid NOT NULL,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Draft',
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_JobVacancyId"" ON public.""Assessments"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_CreatedBy"" ON public.""Assessments"" (""CreatedBy"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Assessments_Status"" ON public.""Assessments"" (""Status"");",
+
+            // 13. Candidate Exam Submissions & Proctoring
+            @"CREATE TABLE IF NOT EXISTS public.""Submissions"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""AssessmentId"" uuid NOT NULL REFERENCES public.""Assessments"" (""Id"") ON DELETE CASCADE,
+                ""CandidateId"" uuid NOT NULL REFERENCES public.""Users"" (""Id"") ON DELETE CASCADE,
+                ""ApplicationId"" uuid NOT NULL REFERENCES public.""JobApplications"" (""Id"") ON DELETE CASCADE,
+                ""JobVacancyId"" uuid NOT NULL,
+                ""Answers"" jsonb,
+                ""ExamScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""CvScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""FinalWeightedScore"" numeric(5,2) NOT NULL DEFAULT 0.00,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'Assigned',
+                ""StartedAt"" timestamp with time zone,
+                ""SubmittedAt"" timestamp with time zone,
+                ""GradedAt"" timestamp with time zone,
+                ""ProctorFlags"" jsonb,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_AssessmentId"" ON public.""Submissions"" (""AssessmentId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_CandidateId"" ON public.""Submissions"" (""CandidateId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_ApplicationId"" ON public.""Submissions"" (""ApplicationId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_JobVacancyId"" ON public.""Submissions"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Submissions_Status"" ON public.""Submissions"" (""Status"");",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""IsSelectedForInterview"" boolean NOT NULL DEFAULT false;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewerFeedback"" text;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ReviewedBy"" uuid;",
+            @"ALTER TABLE public.""Assessments"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;",
+            @"ALTER TABLE public.""Submissions"" ADD COLUMN IF NOT EXISTS ""ExpiresAt"" timestamp with time zone;"
         };
 
         foreach (var ddl in ddlStatements)
