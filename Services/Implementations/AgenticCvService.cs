@@ -93,205 +93,54 @@ namespace Skill_Hub_BackEnd.Services.Implementations
     }
 
     /// <summary>
-    /// Agent 2 – Evaluator
-    /// Responsibility: Use an LLM (Groq / LangGraph) to compare the extracted candidate
-    /// data against the job requirements and produce a structured evaluation result.
+    /// AI Pipeline Client Adapter
+    /// Formats the extracted candidate data into raw text and forwards it
+    /// to the Python microservice which executes the 3-Agent pipeline.
     /// </summary>
-    file sealed class AgentEvaluator
+    file sealed class PythonPipelineAdapter
     {
-        private readonly IAiAgentService _aiService;
-        private readonly ILogger<AgentEvaluator> _logger;
+        private readonly IPythonCvEvalClient _pythonClient;
+        private readonly ILogger _logger;
 
-        public AgentEvaluator(IAiAgentService aiService, ILogger<AgentEvaluator> logger)
+        public PythonPipelineAdapter(IPythonCvEvalClient pythonClient, ILogger logger)
         {
-            _aiService = aiService;
-            _logger    = logger;
+            _pythonClient = pythonClient;
+            _logger = logger;
         }
 
-        /// <summary>
-        /// Calls the AI model with the extracted candidate data and job requirements.
-        /// Returns a structured evaluation containing score, strengths, missing skills,
-        /// and a qualitative recommendation.
-        /// </summary>
-        public async Task<EvaluationOutput> EvaluateMatchAsync(
-            ExtractedCandidateData candidateData,
+        public async Task<PythonCvEvalResponse> RunRemotePipelineAsync(
+            ExtractedCandidateData data,
             CancellationToken cancellationToken)
         {
             _logger.LogInformation(
-                "[AgentEvaluator] Starting LLM evaluation for candidate '{Name}' against '{JobTitle}'",
-                candidateData.CandidateName, candidateData.JobTitle);
+                "[PythonPipelineAdapter] Forwarding candidate '{Name}' to Python 3-Agent pipeline.",
+                data.CandidateName);
 
-            // ── BUILD STRUCTURED PROMPT ────────────────────────────────────────────
-            //  TODO: Replace with your production prompt template (RAG / fine-tuned).
-            var systemPrompt = @"
-You are an expert senior HR analyst and technical recruiter with 15 years of experience.
-Your task is to evaluate a candidate's CV against a specific job vacancy and provide a structured JSON assessment.
+            // Format the structured DB data into a single text blob for the Python Agent 1 to parse.
+            var cvText = $@"
+Name: {data.CandidateName}
+Headline: {data.Headline}
+Location: {data.Location}
 
-Respond ONLY with a valid JSON object in this exact format (no markdown, no prose):
-{
-  ""matchScore"": <integer 0-100>,
-  ""strengths"": [""<strength 1>"", ""<strength 2>"", ...],
-  ""missingSkills"": [""<gap 1>"", ""<gap 2>"", ...],
-  ""recommendation"": ""<2-3 sentence qualitative summary>""
-}
-
-Scoring guide:
-- 90-100: Exceptional fit, exceeds all requirements
-- 75-89:  Strong fit, meets most requirements with minor gaps
-- 60-74:  Moderate fit, meets core requirements but has notable gaps
-- 40-59:  Partial fit, significant skill or experience gaps
-- 0-39:   Poor fit, does not meet minimum requirements";
-
-            var userPrompt = $@"
-=== JOB VACANCY ===
-Title: {candidateData.JobTitle}
-Required Skills: {candidateData.RequiredSkills}
-Job Description: {candidateData.JobDescription}
-
-=== CANDIDATE PROFILE ===
-Name: {candidateData.CandidateName}
-Headline: {candidateData.Headline}
-Location: {candidateData.Location}
-
-Skills: {string.Join(", ", candidateData.Skills)}
+Skills: {string.Join(", ", data.Skills)}
 
 Experience:
-{string.Join("\n", candidateData.ExperienceSummary.Select(e => $"  • {e}"))}
+{string.Join("\n", data.ExperienceSummary.Select(e => $"  • {e}"))}
 
 Education:
-{string.Join("\n", candidateData.EducationSummary.Select(e => $"  • {e}"))}
+{string.Join("\n", data.EducationSummary.Select(e => $"  • {e}"))}
 
 Projects:
-{string.Join("\n", candidateData.ProjectSummary.Select(p => $"  • {p}"))}
+{string.Join("\n", data.ProjectSummary.Select(p => $"  • {p}"))}
 
-Certifications: {string.Join(", ", candidateData.Certifications)}
+Certifications: {string.Join(", ", data.Certifications)}";
 
-Please evaluate this candidate against the job vacancy and provide your structured JSON assessment.";
+            var jobDescription = $@"
+Title: {data.JobTitle}
+Required Skills: {data.RequiredSkills}
+Job Description: {data.JobDescription}";
 
-            // ── AI CALL (placeholder – wire to IAiAgentService or LangGraph) ───────
-            // TODO: Replace with actual AI service call. The IAiAgentService interface
-            //       already exists in the project at Services/Interfaces/IAiAgentService.cs.
-            //       Use: var rawJson = await _aiService.AnalyzeAsync(systemPrompt, userPrompt, cancellationToken);
-            //
-            //       For now, a mock result is returned so the endpoint is functional during development.
-            var rawJson = GenerateMockEvaluation(candidateData);
-
-            _logger.LogInformation("[AgentEvaluator] LLM returned evaluation for '{Name}'", candidateData.CandidateName);
-
-            // ── PARSE AI RESPONSE ─────────────────────────────────────────────────
-            try
-            {
-                var parsed = JsonSerializer.Deserialize<EvaluationOutput>(rawJson, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                }) ?? throw new InvalidOperationException("AI returned empty or unparseable response.");
-
-                return parsed;
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "[AgentEvaluator] Failed to parse AI response. Raw: {Raw}", rawJson);
-                throw new InvalidOperationException("AI evaluation response was not valid JSON. Check the prompt and model configuration.", ex);
-            }
-        }
-
-        // ── MOCK EVALUATOR (remove when real AI is wired) ─────────────────────────
-        private static string GenerateMockEvaluation(ExtractedCandidateData data)
-        {
-            var rng   = new Random();
-            var score = rng.Next(62, 93);
-
-            var matchedSkills  = data.Skills.Take(3).ToList();
-            var requiredSkills = (data.RequiredSkills ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var missing        = requiredSkills.Except(data.Skills, StringComparer.OrdinalIgnoreCase).Take(3).ToList();
-
-            if (missing.Count == 0) missing = ["Advanced system design", "Production Kubernetes ops"];
-
-            return JsonSerializer.Serialize(new
-            {
-                matchScore     = score,
-                strengths      = matchedSkills.Count > 0 ? matchedSkills : new List<string> { "Relevant technical background", "Strong project portfolio" },
-                missingSkills  = missing,
-                recommendation = $"Candidate shows a {score}% alignment with the {data.JobTitle} role. " +
-                                 $"Demonstrated strengths in {string.Join(" and ", matchedSkills.Take(2))}. " +
-                                 $"Recommend scheduling a technical interview to assess depth in {missing.FirstOrDefault() ?? "core requirements"}.",
-            });
-        }
-    }
-
-    /// <summary>
-    /// Agent 3 – Validator
-    /// Responsibility: Apply deterministic business rules on top of the AI-generated score.
-    /// This is the policy/guardrail layer that ensures scores adhere to company hiring rules.
-    /// </summary>
-    file sealed class AgentValidator
-    {
-        private readonly ILogger<AgentValidator> _logger;
-
-        public AgentValidator(ILogger<AgentValidator> logger) => _logger = logger;
-
-        /// <summary>
-        /// Validates and adjusts the AI evaluation output according to deterministic business rules.
-        /// Appends human-readable notes for any adjustments made.
-        /// </summary>
-        public ValidationResult ValidateBusinessRules(
-            EvaluationOutput evaluation,
-            ExtractedCandidateData candidateData)
-        {
-            _logger.LogInformation(
-                "[AgentValidator] Validating business rules. Raw score: {Score}", evaluation.MatchScore);
-
-            var notes       = new List<string>();
-            var finalScore  = evaluation.MatchScore;
-            var finalStrengths     = evaluation.Strengths ?? [];
-            var finalMissingSkills = evaluation.MissingSkills ?? [];
-
-            // ── RULE 1: Score ceiling ─────────────────────────────────────────────
-            if (finalScore > 100) { finalScore = 100; notes.Add("Score capped at 100 (AI over-reported)."); }
-            if (finalScore < 0)   { finalScore = 0;   notes.Add("Score floored at 0 (AI under-reported).");  }
-
-            // ── RULE 2: Mandatory experience gate ─────────────────────────────────
-            //  If candidate has ZERO experience records, cap score at 75 to prevent false positives.
-            if (candidateData.ExperienceSummary.Count == 0 && finalScore > 75)
-            {
-                finalScore = 75;
-                notes.Add("Score capped at 75: no professional experience records on profile.");
-            }
-
-            // ── RULE 3: Skills coverage minimum ──────────────────────────────────
-            if (candidateData.Skills.Count < 3)
-            {
-                notes.Add("Candidate profile has fewer than 3 skills listed — recommend requesting an updated CV.");
-            }
-
-            // ── RULE 4: Missing critical skills penalty ───────────────────────────
-            //  If there are 5+ missing skills, apply a 10-point deduction capped at 50.
-            if (finalMissingSkills.Count >= 5 && finalScore > 50)
-            {
-                finalScore -= 10;
-                notes.Add($"Score adjusted –10 points: {finalMissingSkills.Count} significant skill gaps identified.");
-            }
-
-            // ── RULE 5: Score band normalisation ─────────────────────────────────
-            //  Scores 1–9 are non-standard — round up to 10 to avoid misleading displays.
-            if (finalScore is > 0 and < 10)
-            {
-                finalScore = 10;
-                notes.Add("Score normalised to 10 (minimum display threshold).");
-            }
-
-            _logger.LogInformation(
-                "[AgentValidator] Validation complete. Final score: {Score}, Notes: {Count}",
-                finalScore, notes.Count);
-
-            return new ValidationResult
-            {
-                FinalScore      = finalScore,
-                Strengths       = finalStrengths,
-                MissingSkills   = finalMissingSkills,
-                Recommendation  = evaluation.Recommendation ?? string.Empty,
-                ValidationNotes = notes,
-            };
+            return await _pythonClient.EvaluateAsync(cvText, jobDescription, cancellationToken);
         }
     }
 
@@ -314,22 +163,7 @@ Please evaluate this candidate against the job vacancy and provide your structur
         public string RequiredSkills    { get; init; } = string.Empty;
     }
 
-    file sealed class EvaluationOutput
-    {
-        public int MatchScore              { get; set; }
-        public List<string> Strengths      { get; set; } = [];
-        public List<string> MissingSkills  { get; set; } = [];
-        public string? Recommendation      { get; set; }
-    }
 
-    file sealed class ValidationResult
-    {
-        public int FinalScore              { get; init; }
-        public List<string> Strengths      { get; init; } = [];
-        public List<string> MissingSkills  { get; init; } = [];
-        public string Recommendation       { get; init; } = string.Empty;
-        public List<string> ValidationNotes { get; init; } = [];
-    }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     //  AGENTIC CV SERVICE – ORCHESTRATOR
@@ -344,17 +178,17 @@ Please evaluate this candidate against the job vacancy and provide your structur
     public sealed class AgenticCvService : IAgenticCvService
     {
         private readonly ApplicationDbContext   _db;
-        private readonly IAiAgentService        _aiService;
+        private readonly IPythonCvEvalClient    _pythonClient;
         private readonly ILogger<AgenticCvService> _logger;
 
         public AgenticCvService(
             ApplicationDbContext   db,
-            IAiAgentService        aiService,
+            IPythonCvEvalClient    pythonClient,
             ILogger<AgenticCvService> logger)
         {
-            _db        = db;
-            _aiService = aiService;
-            _logger    = logger;
+            _db           = db;
+            _pythonClient = pythonClient;
+            _logger       = logger;
         }
 
         // ── PUBLIC: AnalyzeCvAsync ────────────────────────────────────────────────
@@ -392,18 +226,12 @@ Please evaluate this candidate against the job vacancy and provide your structur
             var extractedData    = await extractor.ExtractDataAsync(request.CandidateId, request.JobId, cancellationToken);
 
             // ══════════════════════════════════════════════════════════════════════
-            // AGENT 2 — EVALUATOR: AI-powered match scoring
+            // PYTHON MICROSERVICE CALL
             // ══════════════════════════════════════════════════════════════════════
-            var evaluatorLogger  = _logger as ILogger<AgentEvaluator> ?? LoggerFactory.Create(b => b.AddConsole()).CreateLogger<AgentEvaluator>();
-            var evaluator        = new AgentEvaluator(_aiService, evaluatorLogger);
-            var evaluationOutput = await evaluator.EvaluateMatchAsync(extractedData, cancellationToken);
-
-            // ══════════════════════════════════════════════════════════════════════
-            // AGENT 3 — VALIDATOR: Apply deterministic business rules + guardrails
-            // ══════════════════════════════════════════════════════════════════════
-            var validatorLogger  = _logger as ILogger<AgentValidator> ?? LoggerFactory.Create(b => b.AddConsole()).CreateLogger<AgentValidator>();
-            var validator        = new AgentValidator(validatorLogger);
-            var validationResult = validator.ValidateBusinessRules(evaluationOutput, extractedData);
+            // The Python service handles Agent 1 (Extract), Agent 2 (Evaluate), and Agent 3 (Validate)
+            var adapterLogger = _logger as ILogger<PythonPipelineAdapter> ?? LoggerFactory.Create(b => b.AddConsole()).CreateLogger<PythonPipelineAdapter>();
+            var adapter       = new PythonPipelineAdapter(_pythonClient, adapterLogger);
+            var result        = await adapter.RunRemotePipelineAsync(extractedData, cancellationToken);
 
             // ── PERSIST to PostgreSQL ─────────────────────────────────────────────
             var entity = new CvEvaluationResult
@@ -411,12 +239,12 @@ Please evaluate this candidate against the job vacancy and provide your structur
                 CandidateId        = request.CandidateId,
                 JobId              = request.JobId,
                 ApplicationId      = request.ApplicationId,
-                MatchScore         = validationResult.FinalScore,
-                StrengthsJson      = JsonSerializer.Serialize(validationResult.Strengths),
-                MissingSkillsJson  = JsonSerializer.Serialize(validationResult.MissingSkills),
-                Recommendation     = validationResult.Recommendation,
+                MatchScore         = result.MatchScore,
+                StrengthsJson      = JsonSerializer.Serialize(result.Strengths),
+                MissingSkillsJson  = JsonSerializer.Serialize(result.MissingSkills),
+                Recommendation     = result.Recommendation,
                 ExtractedDataJson  = JsonSerializer.Serialize(extractedData),
-                ValidationNotesJson = JsonSerializer.Serialize(validationResult.ValidationNotes),
+                ValidationNotesJson = JsonSerializer.Serialize(result.ValidationNotes),
                 ApprovalStatus     = "Pending",
             };
 

@@ -82,9 +82,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IAiAgentService, GroqAiAgentService>();
-builder.Services.AddScoped<IMatchService, MatchService>();
-builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
+
+
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
@@ -100,31 +99,15 @@ var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
     ?? throw new InvalidOperationException(
         "Missing required configuration value: AiAgent:BaseUrl");
 
-builder.Services.AddHttpClient(LangGraphAiAgentService.HttpClientName, client =>
+builder.Services.AddHttpClient<IPythonCvEvalClient, PythonCvEvalClient>(client =>
 {
     client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
-    // Keep this below the frontend's 120-second ceiling so the API can return a
-    // controlled error, while allowing the evaluator and policy pass to finish.
     client.Timeout = TimeSpan.FromSeconds(110);
     client.DefaultRequestHeaders.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
 
-builder.Services.AddHttpClient(GroqAiAgentService.HttpClientName, client =>
-{
-    client.BaseAddress = new Uri("https://api.groq.com/openai/v1/", UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(110);
-    client.DefaultRequestHeaders.Accept.Add(
-        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-});
 
-builder.Services.AddHttpClient(JobRecommendationService.HttpClientName, client =>
-{
-    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(90);
-    client.DefaultRequestHeaders.Accept.Add(
-        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-});
 
 // ==========================================
 // 3. CONTROLLERS & JSON SERIALIZATION

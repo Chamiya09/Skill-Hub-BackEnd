@@ -71,113 +71,37 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             // ── forceRefresh: wipe all cached results so every candidate is re-evaluated ──
             if (forceRefresh)
             {
-                var staleResults = await _dbContext.AiMatchResults
+                var staleResults = await _dbContext.CvEvaluationResults
                     .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
                     .ToListAsync(cancellationToken);
 
                 if (staleResults.Count > 0)
                 {
-                    _dbContext.AiMatchResults.RemoveRange(staleResults);
+                    _dbContext.CvEvaluationResults.RemoveRange(staleResults);
                     await _dbContext.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation(
-                        "forceRefresh=true: deleted {Count} cached AI result(s) for job {JobId}.",
+                        "forceRefresh=true: deleted {Count} cached CV evaluation result(s) for job {JobId}.",
                         staleResults.Count, jobId);
                 }
             }
 
             // ── Load remaining cached results (empty after forceRefresh) ──
-            var cachedResults = await _dbContext.AiMatchResults
+            var cachedResults = await _dbContext.CvEvaluationResults
                 .AsNoTracking()
                 .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
                 .ToListAsync(cancellationToken);
 
-            // Build lookup dictionaries for score and breakdown
-            var cachedScores = cachedResults.ToDictionary(r => r.CandidateId, r => r.MatchPercentage);
-            var cachedBreakdowns = cachedResults
-                .Where(r => r.BreakdownJson is not null)
-                .ToDictionary(r => r.CandidateId, r => ParseBreakdown(r.BreakdownJson!));
+            // Build lookup dictionaries for score
+            var cachedScores = cachedResults.ToDictionary(r => r.CandidateId, r => r.MatchScore);
 
-            var pending = applications
-                .Where(application => application.Candidate is not null &&
-                    !cachedScores.ContainsKey(application.CandidateId))
-                .Select(application => new EvaluationRequest(
-                    application.CandidateId,
-                    BuildPayload(application.Candidate!, job)))
-                .ToList();
-
-            if (runAiAnalysis && pending.Count > 0)
-            {
-                using var gate = new SemaphoreSlim(MaxConcurrentEvaluations);
-                var client = _httpClientFactory.CreateClient(JobRecommendationService.HttpClientName);
-                var evaluations = await Task.WhenAll(pending.Select(async item =>
-                {
-                    await gate.WaitAsync(cancellationToken);
-                    try
-                    {
-                        _logger.LogInformation(
-                            "Sending Candidate {CandidateId} to Python AI for evaluation at {BaseAddress}...",
-                            item.CandidateId,
-                            client.BaseAddress);
-
-                        using var response = await client.PostAsJsonAsync(
-                            "api/ai/analyze-match", item.Payload, JsonOptions, cancellationToken);
-                        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                        _logger.LogInformation(
-                            "Python AI responded for Candidate {CandidateId} with HTTP {StatusCode}.",
-                            item.CandidateId,
-                            (int)response.StatusCode);
-                        if (!response.IsSuccessStatusCode)
-                        {
-                            _logger.LogError(
-                                "Python AI evaluation failed for candidate {CandidateId}: {StatusCode} {Body}",
-                                item.CandidateId, (int)response.StatusCode, responseBody);
-                            response.EnsureSuccessStatusCode();
-                        }
-
-                        var result = JsonSerializer.Deserialize<PythonEvaluationResponse>(
-                            responseBody, JsonOptions)
-                            ?? throw new JsonException("Python AI returned an empty response.");
-                        return new CompletedEvaluation(item.CandidateId, result);
-                    }
-                    finally
-                    {
-                        gate.Release();
-                    }
-                }));
-
-                // EF Core DbContext is not thread-safe, so HTTP work is concurrent while
-                // persistence remains a single unit of work on the request scope.
-                foreach (var evaluation in evaluations)
-                {
-                    var score = Math.Clamp(evaluation.Result.MatchPercentage, 0, 100);
-                    var breakdownJson = evaluation.Result.Breakdown?.GetRawText();
-
-                    _dbContext.AiMatchResults.Add(new AiMatchResult
-                    {
-                        CandidateId = evaluation.CandidateId,
-                        JobId = jobId,
-                        MatchPercentage = score,
-                        BreakdownJson = breakdownJson,
-                        StrengthsJson = JsonSerializer.Serialize(
-                            evaluation.Result.Strengths ?? new(), JsonOptions),
-                        MissingSkillsJson = JsonSerializer.Serialize(
-                            evaluation.Result.MissingSkills ?? new(), JsonOptions),
-                        Recommendation = evaluation.Result.Recommendation,
-                    });
-
-                    cachedScores[evaluation.CandidateId] = score;
-                    if (breakdownJson is not null)
-                        cachedBreakdowns[evaluation.CandidateId] = ParseBreakdown(breakdownJson);
-                }
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
+            // AI analysis is now handled individually through the Candidate Evaluation Dashboard
+            // using the AgenticCvService instead of batch processing here.
 
             return applications
                 .Select(application => MapApplicant(
                     application,
                     cachedScores.TryGetValue(application.CandidateId, out var score) ? score : null,
-                    cachedBreakdowns.TryGetValue(application.CandidateId, out var breakdown) ? breakdown : null))
+                    null))
                 .OrderByDescending(candidate => candidate.AiMatchScore ?? -1)
                 .ThenBy(candidate => candidate.FullName)
                 .ToList();
@@ -248,21 +172,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 Headline = candidate?.Headline,
                 Location = candidate?.Location,
                 Phone = candidate?.Phone,
-                Skills = candidate?.Skills.Select(skill => skill.SkillName).ToList() ?? new(),
+                Skills = candidate?.Skills?.Select(s => s.SkillName).ToList() ?? new List<string>(),
                 AppliedDate = application.AppliedDate,
                 Status = application.Status,
-                AiMatchScore = score,
-                ScoreBreakdown = breakdown,
+                AiMatchScore = score
             };
         }
-
-        private sealed record EvaluationRequest(Guid CandidateId, object Payload);
-        private sealed record CompletedEvaluation(Guid CandidateId, PythonEvaluationResponse Result);
-        private sealed record PythonEvaluationResponse(
-            [property: JsonPropertyName("MatchPercentage")] int MatchPercentage,
-            [property: JsonPropertyName("Strengths")] List<string>? Strengths,
-            [property: JsonPropertyName("MissingSkillGaps")] List<string>? MissingSkills,
-            [property: JsonPropertyName("AiRecommendation")] string? Recommendation,
-            [property: JsonPropertyName("Breakdown")] JsonElement? Breakdown);
     }
 }
