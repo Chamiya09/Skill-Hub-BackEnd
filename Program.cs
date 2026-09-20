@@ -153,13 +153,25 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ==========================================
-// 5. CORS CONFIGURATION (REACT VITE FRONTEND)
+// 5. CORS CONFIGURATION (LOCAL WEB CLIENTS)
 // ==========================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+        // React/Vite and Flutter Web use different development ports. Trust
+        // localhost only, regardless of its temporary development port.
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                  {
+                      return false;
+                  }
+
+                  return uri.Scheme is "http" or "https" &&
+                         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                          uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();

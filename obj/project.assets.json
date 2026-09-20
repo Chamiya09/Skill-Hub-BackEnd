@@ -3109,19 +3109,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\User\\.nuget\\packages\\": {}
+    "C:\\Users\\CHAMOD EKANAYAKA\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\User\\Desktop\\Projects\\3Y 1S Project V2\\Skill-Hub-BackEnd\\Skill-Hub-BackEnd.csproj",
+      "projectUniqueName": "D:\\Project\\GitHub Project\\Skill Hub\\Skill-Hub-BackEnd\\Skill-Hub-BackEnd.csproj",
       "projectName": "Skill-Hub-BackEnd",
-      "projectPath": "C:\\Users\\User\\Desktop\\Projects\\3Y 1S Project V2\\Skill-Hub-BackEnd\\Skill-Hub-BackEnd.csproj",
-      "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\User\\Desktop\\Projects\\3Y 1S Project V2\\Skill-Hub-BackEnd\\obj\\",
+      "projectPath": "D:\\Project\\GitHub Project\\Skill Hub\\Skill-Hub-BackEnd\\Skill-Hub-BackEnd.csproj",
+      "packagesPath": "C:\\Users\\CHAMOD EKANAYAKA\\.nuget\\packages\\",
+      "outputPath": "D:\\Project\\GitHub Project\\Skill Hub\\Skill-Hub-BackEnd\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "C:\\Users\\User\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "C:\\Users\\CHAMOD EKANAYAKA\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -3202,7 +3202,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.423/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
