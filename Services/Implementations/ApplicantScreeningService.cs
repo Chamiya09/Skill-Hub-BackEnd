@@ -40,10 +40,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     cancellationToken)
                 ?? throw new KeyNotFoundException("Job not found or access denied.");
 
+            // Candidates whose assessments have already been reviewed through the Performance Hub are automatically excluded from AI Screening
+            var reviewedCandidateIds = await _dbContext.Submissions
+                .AsNoTracking()
+                .Where(s => s.JobVacancyId == jobId &&
+                            (s.ReviewedBy != null || s.GradedAt != null || s.Status == "Graded" || s.Status == "Passed" || s.IsSelectedForInterview))
+                .Select(s => s.CandidateId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
             var applications = await _dbContext.JobApplications
                 .AsNoTracking()
                 .AsSplitQuery()
-                .Where(application => application.JobId == jobId && (application.Status == "Applied" || application.Status == "Shortlisted" || application.Status == "Assessment"))
+                .Where(application => application.JobId == jobId &&
+                                      !reviewedCandidateIds.Contains(application.CandidateId) &&
+                                      application.Status != "Assessment_Reviewed" &&
+                                      application.Status != "Interview" &&
+                                      application.Status != "Rejected" &&
+                                      (application.Status == "Applied" || application.Status == "Shortlisted" || application.Status == "Assessment"))
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Skills)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Experiences)
                 .Include(application => application.Candidate)!.ThenInclude(candidate => candidate!.Projects)
