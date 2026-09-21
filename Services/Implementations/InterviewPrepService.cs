@@ -291,7 +291,12 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             var query = _dbContext.InterviewPrepGuides
                 .AsNoTracking()
-                .Where(g => g.CandidateId == candidateId || g.CandidateId == null);
+                .Where(g => g.ApplicationId != null);
+
+            if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
+            {
+                query = query.Where(g => g.CandidateId == candidateId);
+            }
 
             if (jobId.HasValue)
             {
@@ -311,14 +316,21 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Guid candidateId,
             CancellationToken cancellationToken = default)
         {
-            var guides = await _dbContext.InterviewPrepGuides
+            var query = _dbContext.InterviewPrepGuides
                 .AsNoTracking()
                 .Include(g => g.JobApplication)
                     .ThenInclude(a => a!.Job)
                         .ThenInclude(j => j!.Company)
                 .Include(g => g.Job)
                     .ThenInclude(j => j!.Company)
-                .Where(g => g.CandidateId == candidateId || g.CandidateId == null)
+                .Where(g => g.ApplicationId != null);
+
+            if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
+            {
+                query = query.Where(g => g.CandidateId == candidateId);
+            }
+
+            var guides = await query
                 .OrderByDescending(g => g.CreatedAt)
                 .ToListAsync(cancellationToken);
 
@@ -327,6 +339,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             foreach (var entity in guides)
             {
+                if (entity.ApplicationId == null)
+                {
+                    continue;
+                }
+
                 var dto = MapEntityToDto(entity);
                 var key = $"{dto.CompanyName}-{dto.JobTitle}";
                 if (seenKeys.Add(key))
