@@ -226,10 +226,10 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var candidateIds = applications.Select(a => a.CandidateId).Distinct().ToList();
 
-            var aiScores = await _dbContext.AiMatchResults
+            var aiScores = await _dbContext.CvEvaluationResults
                 .AsNoTracking()
                 .Where(r => r.JobId == jobId && candidateIds.Contains(r.CandidateId))
-                .ToDictionaryAsync(r => r.CandidateId, r => r.MatchPercentage, cancellationToken);
+                .ToDictionaryAsync(r => r.CandidateId, r => r.MatchScore, cancellationToken);
 
             var skillsMap = await _dbContext.CandidateSkills
                 .AsNoTracking()

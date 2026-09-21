@@ -19,10 +19,10 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CandidateSkill> CandidateSkills => Set<CandidateSkill>();
         public DbSet<CandidateCertification> CandidateCertifications => Set<CandidateCertification>();
         public DbSet<JobApplication> JobApplications => Set<JobApplication>();
-        public DbSet<AiMatchResult> AiMatchResults => Set<AiMatchResult>();
         public DbSet<SavedJob> SavedJobs => Set<SavedJob>();
         public DbSet<Assessment> Assessments => Set<Assessment>();
         public DbSet<Submission> Submissions => Set<Submission>();
+        public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -82,22 +82,6 @@ namespace Skill_Hub_BackEnd.Data
                       .OnDelete(DeleteBehavior.Cascade);
             });
 
-            modelBuilder.Entity<AiMatchResult>(entity =>
-            {
-                entity.ToTable("AiMatchResults", "public");
-                entity.HasIndex(result => new { result.CandidateId, result.JobId }).IsUnique();
-                entity.HasIndex(result => result.JobId);
-
-                entity.HasOne(result => result.Candidate)
-                      .WithMany()
-                      .HasForeignKey(result => result.CandidateId)
-                      .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasOne(result => result.Job)
-                      .WithMany()
-                      .HasForeignKey(result => result.JobId)
-                      .OnDelete(DeleteBehavior.Cascade);
-            });
 
             modelBuilder.Entity<SavedJob>(entity =>
             {
@@ -207,6 +191,41 @@ namespace Skill_Hub_BackEnd.Data
                       .WithMany(a => a.Submissions)
                       .HasForeignKey(s => s.AssessmentId)
                       .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // CvEvaluationResult Entity Configurations
+            modelBuilder.Entity<CvEvaluationResult>(entity =>
+            {
+                entity.ToTable("CvEvaluationResults", "public");
+
+                // Index for the cache lookup: latest evaluation for a candidate/job pair
+                entity.HasIndex(r => new { r.CandidateId, r.JobId, r.CreatedAt })
+                      .HasDatabaseName("IX_CvEvaluationResults_Candidate_Job_Date");
+
+                entity.HasIndex(r => r.ApprovalStatus)
+                      .HasDatabaseName("IX_CvEvaluationResults_ApprovalStatus");
+
+                // Store structured AI outputs as JSONB for efficient Postgres querying
+                entity.Property(r => r.StrengthsJson).HasColumnType("jsonb");
+                entity.Property(r => r.MissingSkillsJson).HasColumnType("jsonb");
+                entity.Property(r => r.ExtractedDataJson).HasColumnType("jsonb");
+                entity.Property(r => r.ValidationNotesJson).HasColumnType("jsonb");
+
+                entity.Property(r => r.ApprovalStatus)
+                      .HasMaxLength(20)
+                      .HasDefaultValue("Pending");
+
+                // Foreign key: Candidate (User)
+                entity.HasOne(r => r.Candidate)
+                      .WithMany()
+                      .HasForeignKey(r => r.CandidateId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Foreign key: JobVacancy
+                entity.HasOne(r => r.Job)
+                      .WithMany()
+                      .HasForeignKey(r => r.JobId)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

@@ -59,7 +59,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 .Where(application => companyJobIds.Contains(application.JobId))
                 .ToListAsync();
 
-            var aiResults = await _dbContext.AiMatchResults
+            var aiResults = await _dbContext.CvEvaluationResults
                 .AsNoTracking()
                 .Where(result => companyJobIds.Contains(result.JobId))
                 .ToListAsync();
@@ -75,17 +75,17 @@ namespace Skill_Hub_BackEnd.Controllers
                 application.Status.Contains("Shortlist", StringComparison.OrdinalIgnoreCase));
             var pendingInterviews = applications.Count(application =>
                 application.Status.Contains("Interview", StringComparison.OrdinalIgnoreCase));
-            var aiShortlisted = aiResults.Count(result => result.MatchPercentage >= 80);
+            var aiShortlisted = aiResults.Count(result => result.MatchScore >= 80);
             var evaluatedPairs = aiResults
                 .Select(result => (result.CandidateId, result.JobId))
                 .ToHashSet();
             var pendingAiEvaluations = applications.Count(application =>
                 !evaluatedPairs.Contains((application.CandidateId, application.JobId)));
 
-            var topTalentMatches = await _dbContext.AiMatchResults
+            var topTalentMatches = await _dbContext.CvEvaluationResults
                 .AsNoTracking()
                 .Where(result => companyJobIds.Contains(result.JobId))
-                .OrderByDescending(result => result.MatchPercentage)
+                .OrderByDescending(result => result.MatchScore)
                 .ThenByDescending(result => result.CreatedAt)
                 .Take(4)
                 .Select(result => new TopTalentMatchDto
@@ -95,7 +95,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     Headline = result.Candidate != null ? result.Candidate.Headline : null,
                     JobId = result.JobId,
                     JobTitle = result.Job != null ? result.Job.Title : "Vacancy",
-                    MatchPercentage = result.MatchPercentage,
+                    MatchPercentage = result.MatchScore,
                     EvaluatedAt = result.CreatedAt,
                 })
                 .ToListAsync();
@@ -168,7 +168,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 {
                     JobId = latestAiResult.JobId,
                     JobTitle = latestAiJob?.Title ?? "Vacancy",
-                    MatchPercentage = latestAiResult.MatchPercentage,
+                    MatchPercentage = latestAiResult.MatchScore,
                     OccurredAt = latestAiResult.CreatedAt,
                 },
                 RecentVacancies = recentJobs
