@@ -247,6 +247,12 @@ namespace Skill_Hub_BackEnd.Data
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.SetNull);
 
+                entity.HasOne(g => g.JobApplication)
+                      .WithMany()
+                      .HasForeignKey(g => g.ApplicationId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
+
                 entity.HasOne(g => g.Job)
                       .WithMany()
                       .HasForeignKey(g => g.JobId)

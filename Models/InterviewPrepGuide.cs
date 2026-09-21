@@ -21,6 +21,9 @@ namespace Skill_Hub_BackEnd.Models
         /// <summary>Optional foreign key to the specific JobApplication.</summary>
         public Guid? ApplicationId { get; set; }
 
+        [ForeignKey(nameof(ApplicationId))]
+        public JobApplication? JobApplication { get; set; }
+
         /// <summary>Optional foreign key to an applied JobVacancy on the platform.</summary>
         public Guid? JobId { get; set; }
 

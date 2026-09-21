@@ -53,20 +53,29 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     eligibility.ApplicationStatus);
             }
 
-            // Fetch job title/description from DB if ApplicationId or JobId provided
+            // Fetch job title/description and company from DB if ApplicationId or JobId provided
             string resolvedTitle = request.JobTitle ?? string.Empty;
             string resolvedDescription = request.JobDescription ?? string.Empty;
+
+            string? resolvedCompany = null;
+            string? resolvedLocation = null;
+            string? resolvedEmploymentType = null;
+            string? resolvedStatus = null;
+            DateTime? resolvedAppliedDate = null;
 
             if (request.ApplicationId.HasValue)
             {
                 var app = await _dbContext.JobApplications
                     .AsNoTracking()
                     .Include(a => a.Job)
+                        .ThenInclude(j => j!.Company)
                     .FirstOrDefaultAsync(a => a.Id == request.ApplicationId.Value, cancellationToken);
 
                 if (app != null)
                 {
                     request.JobId ??= app.JobId;
+                    resolvedStatus = app.Status;
+                    resolvedAppliedDate = app.AppliedDate;
                     if (string.IsNullOrWhiteSpace(resolvedTitle) && app.Job != null)
                     {
                         resolvedTitle = app.Job.Title;
@@ -75,19 +84,29 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     {
                         resolvedDescription = app.Job.Description;
                     }
+                    if (app.Job != null)
+                    {
+                        resolvedCompany = app.Job.Company?.CompanyName;
+                        resolvedLocation = app.Job.Location;
+                        resolvedEmploymentType = app.Job.EmploymentType;
+                    }
                 }
             }
 
-            if (request.JobId.HasValue && (string.IsNullOrWhiteSpace(resolvedTitle) || string.IsNullOrWhiteSpace(resolvedDescription)))
+            if (request.JobId.HasValue && (string.IsNullOrWhiteSpace(resolvedTitle) || string.IsNullOrWhiteSpace(resolvedDescription) || string.IsNullOrWhiteSpace(resolvedCompany)))
             {
                 var job = await _dbContext.JobVacancies
                     .AsNoTracking()
+                    .Include(j => j.Company)
                     .FirstOrDefaultAsync(j => j.Id == request.JobId.Value, cancellationToken);
 
                 if (job != null)
                 {
                     if (string.IsNullOrWhiteSpace(resolvedTitle)) resolvedTitle = job.Title;
                     if (string.IsNullOrWhiteSpace(resolvedDescription)) resolvedDescription = job.Description;
+                    resolvedCompany ??= job.Company?.CompanyName;
+                    resolvedLocation ??= job.Location;
+                    resolvedEmploymentType ??= job.EmploymentType;
                 }
             }
 
@@ -158,6 +177,12 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 JobId = request.JobId,
                 JobTitle = resolvedTitle,
                 TargetRole = targetRole,
+                CompanyName = resolvedCompany ?? "Enterprise Partner",
+                Location = resolvedLocation,
+                EmploymentType = resolvedEmploymentType,
+                ApplicationStatus = resolvedStatus ?? "Interview",
+                AppliedDate = resolvedAppliedDate,
+                InterviewDate = resolvedAppliedDate?.AddDays(7),
                 JobDescription = resolvedDescription,
                 RoleOverviewSummary = roleOverview,
                 KeyTheoreticalAreas = keyTheoreticalAreas,
@@ -173,9 +198,56 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Guid id,
             CancellationToken cancellationToken = default)
         {
+            // Query PostgreSQL database using Entity Framework with relationships included:
+            // Include JobApplication -> Job -> Company, and Job -> Company
             var entity = await _dbContext.InterviewPrepGuides
                 .AsNoTracking()
-                .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+                .Include(g => g.JobApplication)
+                    .ThenInclude(a => a!.Job)
+                        .ThenInclude(j => j!.Company)
+                .Include(g => g.Job)
+                    .ThenInclude(j => j!.Company)
+                .FirstOrDefaultAsync(g => g.Id == id || g.ApplicationId == id, cancellationToken);
+
+            // If not found directly, check if id is an ApplicationId
+            if (entity == null)
+            {
+                var app = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .Include(a => a.Job)
+                        .ThenInclude(j => j!.Company)
+                    .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+
+                if (app != null)
+                {
+                    entity = await _dbContext.InterviewPrepGuides
+                        .AsNoTracking()
+                        .Include(g => g.JobApplication)
+                            .ThenInclude(a => a!.Job)
+                                .ThenInclude(j => j!.Company)
+                        .Include(g => g.Job)
+                            .ThenInclude(j => j!.Company)
+                        .OrderByDescending(g => g.CreatedAt)
+                        .FirstOrDefaultAsync(g => g.ApplicationId == app.Id || (g.CandidateId == app.CandidateId && g.JobId == app.JobId), cancellationToken);
+
+                    if (entity == null && (app.Status ?? "").Equals("Interview", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return await GenerateGuideAsync(
+                            app.CandidateId,
+                            new GenerateInterviewPrepRequestDto
+                            {
+                                CandidateId = app.CandidateId,
+                                ApplicationId = app.Id,
+                                JobId = app.JobId,
+                                JobTitle = app.Job?.Title,
+                                TargetRole = app.Job?.Title,
+                                JobDescription = app.Job?.Description ?? string.Empty
+                            },
+                            cancellationToken);
+                    }
+
+                }
+            }
 
             if (entity == null) return null;
 
@@ -200,6 +272,20 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var checklist = DeserializeSafe<List<string>>(entity.ChecklistJson);
             if (checklist.Count == 0) checklist = BuildStudyChecklist(entity.TargetRole ?? entity.JobTitle);
 
+            var companyName = entity.JobApplication?.Job?.Company?.CompanyName
+                ?? entity.Job?.Company?.CompanyName
+                ?? "Enterprise Partner";
+
+            var location = entity.JobApplication?.Job?.Location
+                ?? entity.Job?.Location;
+
+            var employmentType = entity.JobApplication?.Job?.EmploymentType
+                ?? entity.Job?.EmploymentType;
+
+            var appStatus = entity.JobApplication?.Status ?? "Interview";
+
+            var appliedDate = entity.JobApplication?.AppliedDate;
+
             return new InterviewPrepGuideDto
             {
                 Id = entity.Id,
@@ -208,6 +294,12 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 JobId = entity.JobId,
                 JobTitle = entity.JobTitle,
                 TargetRole = entity.TargetRole ?? entity.JobTitle,
+                CompanyName = companyName,
+                Location = location,
+                EmploymentType = employmentType,
+                ApplicationStatus = appStatus,
+                AppliedDate = appliedDate,
+                InterviewDate = appliedDate?.AddDays(7),
                 JobDescription = entity.JobDescription,
                 RoleOverviewSummary = entity.RoleOverviewSummary ?? string.Empty,
                 KeyTheoreticalAreas = theoreticalAreas,
@@ -218,6 +310,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CreatedAt = entity.CreatedAt
             };
         }
+
 
         public async Task<InterviewPrepGuideDto?> GetLatestGuideAsync(
             Guid candidateId,

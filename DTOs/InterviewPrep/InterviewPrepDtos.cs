@@ -141,6 +141,18 @@ namespace Skill_Hub_BackEnd.DTOs.InterviewPrep
 
         public string TargetRole { get; set; } = string.Empty;
 
+        public string? CompanyName { get; set; }
+
+        public string? Location { get; set; }
+
+        public string? EmploymentType { get; set; }
+
+        public string? ApplicationStatus { get; set; }
+
+        public DateTime? AppliedDate { get; set; }
+
+        public DateTime? InterviewDate { get; set; }
+
         public string JobDescription { get; set; } = string.Empty;
 
         public string RoleOverviewSummary { get; set; } = string.Empty;
