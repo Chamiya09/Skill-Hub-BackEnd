@@ -176,4 +176,16 @@ namespace Skill_Hub_BackEnd.DTOs.InterviewPrep
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Internal storage model serialized into InterviewPrepGuide.TechnicalQuestionsJson
+    /// </summary>
+    public sealed class StudyGuidelineStore
+    {
+        public List<StudyFocusAreaDto> KeyTheoreticalAreas { get; set; } = new();
+        public List<StudyFocusAreaDto> TechnicalCoreConcepts { get; set; } = new();
+        public List<StudyFocusAreaDto> PracticalImplementationFocus { get; set; } = new();
+        public List<string> ProTips { get; set; } = new();
+        public List<string> PreparationChecklist { get; set; } = new();
+    }
 }

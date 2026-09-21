@@ -109,6 +109,15 @@ builder.Services.AddHttpClient<IPythonCvEvalClient, PythonCvEvalClient>(client =
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
 
+// ── Student 1: Python Interview Prep Guide Client ────────────────────────────
+builder.Services.AddHttpClient<IPythonInterviewPrepClient, PythonInterviewPrepClient>(client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(110);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
 
 
 // ==========================================
