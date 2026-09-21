@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Skill_Hub_BackEnd.DTOs.InterviewPrep;
+using Skill_Hub_BackEnd.Services.Implementations;
 using Skill_Hub_BackEnd.Services.Interfaces;
 
 namespace Skill_Hub_BackEnd.Controllers
@@ -24,9 +25,11 @@ namespace Skill_Hub_BackEnd.Controllers
         /// <summary>
         /// POST /api/interviewprep/generate
         /// Generates an AI-tailored interview preparation guide.
+        /// Accepts Application ID, checks candidate eligibility, saves to PostgreSQL, and returns newly created GuideId.
+        /// Returns 403 Forbidden if candidate's application is Rejected.
         /// </summary>
         [HttpPost("generate")]
-        public async Task<ActionResult<InterviewPrepGuideDto>> Generate(
+        public async Task<ActionResult<GenerateInterviewPrepResponseDto>> Generate(
             [FromBody] GenerateInterviewPrepRequestDto request,
             CancellationToken cancellationToken)
         {
@@ -35,12 +38,12 @@ namespace Skill_Hub_BackEnd.Controllers
                 return BadRequest(ModelState);
             }
 
-            if (string.IsNullOrWhiteSpace(request.JobDescription))
+            if (!request.ApplicationId.HasValue && string.IsNullOrWhiteSpace(request.JobDescription) && string.IsNullOrWhiteSpace(request.TargetRole) && string.IsNullOrWhiteSpace(request.JobTitle))
             {
-                return BadRequest(new { message = "Job description is required to generate interview preparation guidelines." });
+                return BadRequest(new { message = "Application ID, Job description, or Target Role is required to generate interview preparation guidelines." });
             }
 
-            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+            var candidateId = GetCandidateId() ?? request.CandidateId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
 
             try
             {
@@ -49,13 +52,63 @@ namespace Skill_Hub_BackEnd.Controllers
                     request,
                     cancellationToken);
 
-                return Ok(result);
+                return Ok(new GenerateInterviewPrepResponseDto
+                {
+                    GuideId = result.Id,
+                    Id = result.Id,
+                    Message = "Interview preparation guide generated successfully.",
+                    Guide = result
+                });
+            }
+            catch (InterviewPrepIneligibleException ex)
+            {
+                _logger.LogWarning("Access denied for Candidate {CandidateId}: {Message} (Status: {Status})", candidateId, ex.Message, ex.Status);
+                return StatusCode(ex.StatusCode, new { message = ex.Message, status = ex.Status });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating interview prep guide for Candidate {CandidateId}", candidateId);
                 return StatusCode(500, new { message = "An error occurred while generating your interview preparation guide. Please try again." });
             }
+        }
+
+        /// <summary>
+        /// GET /api/interviewprep/{id}
+        /// Fetches the saved guide from the database and returns it to the frontend for Page 2 (Study Dashboard).
+        /// </summary>
+        [HttpGet("{id:guid}")]
+        public async Task<ActionResult<InterviewPrepGuideDto>> GetById(
+            Guid id,
+            CancellationToken cancellationToken)
+        {
+            var guide = await _interviewPrepService.GetGuideByIdAsync(id, cancellationToken);
+            if (guide == null)
+            {
+                return NotFound(new { message = "Interview preparation guide not found." });
+            }
+
+            return Ok(guide);
+        }
+
+        /// <summary>
+        /// GET /api/interviewprep/eligibility
+        /// Checks if the candidate is eligible to access interview preparation.
+        /// </summary>
+        [HttpGet("eligibility")]
+        public async Task<ActionResult<InterviewPrepEligibilityDto>> CheckEligibility(
+            [FromQuery] Guid? applicationId,
+            [FromQuery] Guid? jobId,
+            CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+            var result = await _interviewPrepService.CheckEligibilityAsync(
+                candidateId,
+                applicationId,
+                jobId,
+                cancellationToken);
+
+            return Ok(result);
         }
 
         /// <summary>

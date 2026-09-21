@@ -9,8 +9,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 {
     /// <summary>
     /// Implementation of the AI Interview Preparation Guide Service (Student 1 module).
-    /// Provides intelligent, context-aware mock interview prep data tailored to the specified job role.
-    /// In future iterations, this connects to the Python LangGraph AI Agent.
+    /// Acts as a Technical Career Coach analyzing the Job Description to formulate structured
+    /// 'Focus Areas' and 'Study Guidelines' (strictly NO direct interview questions).
     /// </summary>
     public sealed class InterviewPrepService : IInterviewPrepService
     {
@@ -31,12 +31,52 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             _logger.LogInformation(
-                "Generating Interview Prep Guide for Candidate {CandidateId}, JobId: {JobId}, Title: {JobTitle}",
-                candidateId, request.JobId, request.JobTitle);
+                "Generating Technical Study Guidelines for Candidate {CandidateId}, AppId: {AppId}, JobId: {JobId}, Title: {JobTitle}",
+                candidateId, request.ApplicationId, request.JobId, request.JobTitle);
 
-            // Fetch job title/description from DB if JobId provided and fields were omitted
+            // ── Strict Stage Gate: ONLY 'Interview' Stage Permitted ─────────────────
+            var eligibility = await CheckEligibilityAsync(
+                candidateId,
+                request.ApplicationId,
+                request.JobId,
+                cancellationToken);
+
+            if (!eligibility.IsEligible)
+            {
+                _logger.LogWarning(
+                    "Interview prep access denied for Candidate {CandidateId}. Current stage: {Status}",
+                    candidateId, eligibility.ApplicationStatus);
+
+                throw new InterviewPrepIneligibleException(
+                    "Access denied. Interview preparation is strictly available only when your application reaches the 'Interview' stage.",
+                    403,
+                    eligibility.ApplicationStatus);
+            }
+
+            // Fetch job title/description from DB if ApplicationId or JobId provided
             string resolvedTitle = request.JobTitle ?? string.Empty;
             string resolvedDescription = request.JobDescription ?? string.Empty;
+
+            if (request.ApplicationId.HasValue)
+            {
+                var app = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .Include(a => a.Job)
+                    .FirstOrDefaultAsync(a => a.Id == request.ApplicationId.Value, cancellationToken);
+
+                if (app != null)
+                {
+                    request.JobId ??= app.JobId;
+                    if (string.IsNullOrWhiteSpace(resolvedTitle) && app.Job != null)
+                    {
+                        resolvedTitle = app.Job.Title;
+                    }
+                    if (string.IsNullOrWhiteSpace(resolvedDescription) && app.Job != null)
+                    {
+                        resolvedDescription = app.Job.Description;
+                    }
+                }
+            }
 
             if (request.JobId.HasValue && (string.IsNullOrWhiteSpace(resolvedTitle) || string.IsNullOrWhiteSpace(resolvedDescription)))
             {
@@ -62,24 +102,37 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 ? request.TargetRole 
                 : resolvedTitle;
 
-            // Generate structured mock questions tailored to the role & tech stack
-            var technicalQuestions = BuildTechnicalQuestions(resolvedTitle, resolvedDescription);
-            var behavioralQuestions = BuildBehavioralQuestions(resolvedTitle);
-            var proTips = BuildProTips(resolvedTitle);
-            var checklist = BuildPreparationChecklist(resolvedTitle);
+            // ── Generate Career Coach Study Guideline (Strictly NO Direct Questions) ──
+            var keyTheoreticalAreas = BuildKeyTheoreticalAreas(resolvedTitle, resolvedDescription);
+            var technicalCoreConcepts = BuildTechnicalCoreConcepts(resolvedTitle, resolvedDescription);
+            var practicalImplementationFocus = BuildPracticalImplementationFocus(resolvedTitle, resolvedDescription);
+            var proTips = BuildCareerCoachTips(targetRole);
+            var checklist = BuildStudyChecklist(targetRole);
             var roleOverview = BuildRoleOverview(targetRole, resolvedDescription);
+
+            var studyStore = new StudyGuidelineStore
+            {
+                KeyTheoreticalAreas = keyTheoreticalAreas,
+                TechnicalCoreConcepts = technicalCoreConcepts,
+                PracticalImplementationFocus = practicalImplementationFocus,
+                ProTips = proTips,
+                PreparationChecklist = checklist
+            };
+
+            var candidateExists = await _dbContext.Users.AnyAsync(u => u.Id == candidateId, cancellationToken);
 
             var guideEntity = new InterviewPrepGuide
             {
                 Id = Guid.NewGuid(),
-                CandidateId = candidateId,
+                CandidateId = candidateExists ? candidateId : null,
+                ApplicationId = request.ApplicationId,
                 JobId = request.JobId,
                 JobTitle = resolvedTitle,
                 TargetRole = targetRole,
                 JobDescription = resolvedDescription,
                 RoleOverviewSummary = roleOverview,
-                TechnicalQuestionsJson = JsonSerializer.Serialize(technicalQuestions),
-                BehavioralQuestionsJson = JsonSerializer.Serialize(behavioralQuestions),
+                TechnicalQuestionsJson = JsonSerializer.Serialize(studyStore),
+                BehavioralQuestionsJson = JsonSerializer.Serialize(technicalCoreConcepts),
                 ProTipsJson = JsonSerializer.Serialize(proTips),
                 ChecklistJson = JsonSerializer.Serialize(checklist),
                 CreatedAt = DateTime.UtcNow,
@@ -94,23 +147,75 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not persist InterviewPrepGuide to database (returning in-memory result for preview testing).");
+                _logger.LogWarning(ex, "Could not persist InterviewPrepGuide to database: {Message}", ex.Message);
             }
 
             return new InterviewPrepGuideDto
             {
                 Id = guideEntity.Id,
-                CandidateId = candidateId,
+                CandidateId = guideEntity.CandidateId ?? candidateId,
+                ApplicationId = guideEntity.ApplicationId,
                 JobId = request.JobId,
                 JobTitle = resolvedTitle,
                 TargetRole = targetRole,
                 JobDescription = resolvedDescription,
                 RoleOverviewSummary = roleOverview,
-                TechnicalQuestions = technicalQuestions,
-                BehavioralQuestions = behavioralQuestions,
+                KeyTheoreticalAreas = keyTheoreticalAreas,
+                TechnicalCoreConcepts = technicalCoreConcepts,
+                PracticalImplementationFocus = practicalImplementationFocus,
                 ProTips = proTips,
                 PreparationChecklist = checklist,
                 CreatedAt = guideEntity.CreatedAt
+            };
+        }
+
+        public async Task<InterviewPrepGuideDto?> GetGuideByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            var entity = await _dbContext.InterviewPrepGuides
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+            if (entity == null) return null;
+
+            // Attempt to deserialize the unified StudyGuidelineStore
+            var studyStore = DeserializeSafe<StudyGuidelineStore>(entity.TechnicalQuestionsJson);
+
+            var theoreticalAreas = studyStore.KeyTheoreticalAreas?.Count > 0 
+                ? studyStore.KeyTheoreticalAreas 
+                : BuildKeyTheoreticalAreas(entity.JobTitle, entity.JobDescription);
+
+            var coreConcepts = studyStore.TechnicalCoreConcepts?.Count > 0 
+                ? studyStore.TechnicalCoreConcepts 
+                : BuildTechnicalCoreConcepts(entity.JobTitle, entity.JobDescription);
+
+            var practicalFocus = studyStore.PracticalImplementationFocus?.Count > 0 
+                ? studyStore.PracticalImplementationFocus 
+                : BuildPracticalImplementationFocus(entity.JobTitle, entity.JobDescription);
+
+            var proTips = DeserializeSafe<List<string>>(entity.ProTipsJson);
+            if (proTips.Count == 0) proTips = BuildCareerCoachTips(entity.TargetRole ?? entity.JobTitle);
+
+            var checklist = DeserializeSafe<List<string>>(entity.ChecklistJson);
+            if (checklist.Count == 0) checklist = BuildStudyChecklist(entity.TargetRole ?? entity.JobTitle);
+
+            return new InterviewPrepGuideDto
+            {
+                Id = entity.Id,
+                CandidateId = entity.CandidateId ?? Guid.Empty,
+                ApplicationId = entity.ApplicationId,
+                JobId = entity.JobId,
+                JobTitle = entity.JobTitle,
+                TargetRole = entity.TargetRole ?? entity.JobTitle,
+                JobDescription = entity.JobDescription,
+                RoleOverviewSummary = entity.RoleOverviewSummary ?? string.Empty,
+                KeyTheoreticalAreas = theoreticalAreas,
+                TechnicalCoreConcepts = coreConcepts,
+                PracticalImplementationFocus = practicalFocus,
+                ProTips = proTips,
+                PreparationChecklist = checklist,
+                CreatedAt = entity.CreatedAt
             };
         }
 
@@ -121,7 +226,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             var query = _dbContext.InterviewPrepGuides
                 .AsNoTracking()
-                .Where(g => g.CandidateId == candidateId);
+                .Where(g => g.CandidateId == candidateId || g.CandidateId == null);
 
             if (jobId.HasValue)
             {
@@ -134,20 +239,95 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (entity == null) return null;
 
-            return new InterviewPrepGuideDto
+            return await GetGuideByIdAsync(entity.Id, cancellationToken);
+        }
+
+        public async Task<InterviewPrepEligibilityDto> CheckEligibilityAsync(
+            Guid candidateId,
+            Guid? applicationId = null,
+            Guid? jobId = null,
+            CancellationToken cancellationToken = default)
+        {
+            JobApplication? application = null;
+
+            if (applicationId.HasValue)
             {
-                Id = entity.Id,
-                CandidateId = entity.CandidateId,
-                JobId = entity.JobId,
-                JobTitle = entity.JobTitle,
-                TargetRole = entity.TargetRole ?? entity.JobTitle,
-                JobDescription = entity.JobDescription,
-                RoleOverviewSummary = entity.RoleOverviewSummary ?? string.Empty,
-                TechnicalQuestions = DeserializeSafe<List<InterviewQuestionDto>>(entity.TechnicalQuestionsJson),
-                BehavioralQuestions = DeserializeSafe<List<BehavioralQuestionDto>>(entity.BehavioralQuestionsJson),
-                ProTips = DeserializeSafe<List<string>>(entity.ProTipsJson),
-                PreparationChecklist = DeserializeSafe<List<string>>(entity.ChecklistJson),
-                CreatedAt = entity.CreatedAt
+                application = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.Id == applicationId.Value, cancellationToken);
+            }
+            else if (jobId.HasValue)
+            {
+                application = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .Where(a => a.CandidateId == candidateId && a.JobId == jobId.Value)
+                    .OrderByDescending(a => a.AppliedDate)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+            else
+            {
+                application = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .Where(a => a.CandidateId == candidateId)
+                    .OrderByDescending(a => a.AppliedDate)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            // Check if there is an existing CV Evaluation result
+            CvEvaluationResult? cvEval = null;
+            if (application != null)
+            {
+                cvEval = await _dbContext.CvEvaluationResults
+                    .AsNoTracking()
+                    .Where(r => r.CandidateId == candidateId && r.JobId == application.JobId)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            // If application is not found in database (e.g. preview mode or demo application in dev)
+            if (application == null)
+            {
+                return new InterviewPrepEligibilityDto
+                {
+                    IsEligible = true,
+                    ApplicationStatus = "Interview",
+                    Message = "Candidate is eligible for interview preparation."
+                };
+            }
+
+            var currentStatus = application.Status ?? "Pending";
+            var cvApproval = cvEval?.ApprovalStatus ?? "Pending";
+
+            // 1. If explicitly Rejected
+            if (currentStatus.Equals("Rejected", StringComparison.OrdinalIgnoreCase) ||
+                cvApproval.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+            {
+                return new InterviewPrepEligibilityDto
+                {
+                    IsEligible = false,
+                    ApplicationStatus = "Rejected",
+                    Message = "Access denied. Candidate is not eligible for interview preparation."
+                };
+            }
+
+            // 2. Strict Requirement: ONLY 'Interview' stage permitted. (Assessment stage access is REMOVED)
+            bool isEligible = currentStatus.Equals("Interview", StringComparison.OrdinalIgnoreCase);
+
+            if (!isEligible)
+            {
+                return new InterviewPrepEligibilityDto
+                {
+                    IsEligible = false,
+                    ApplicationStatus = currentStatus,
+                    Message = "Interview Preparation is strictly unlocked only when your application reaches the 'Interview' stage."
+                };
+            }
+
+            return new InterviewPrepEligibilityDto
+            {
+                IsEligible = true,
+                ApplicationStatus = currentStatus,
+                Message = "Candidate is eligible for interview preparation."
             };
         }
 
@@ -156,7 +336,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             if (string.IsNullOrWhiteSpace(json)) return new T();
             try
             {
-                return JsonSerializer.Deserialize<T>(json) ?? new T();
+                return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new T();
             }
             catch
             {
@@ -164,157 +344,296 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }
         }
 
-        // ── Tailored Mock Generators ─────────────────────────────────────────────
+        // ── Technical Career Coach Generators (Strictly NO Direct Interview Questions) ──
 
         private static string BuildRoleOverview(string targetRole, string jobDescription)
         {
-            return $"This interview preparation guide is customized for the '{targetRole}' position. " +
-                   $"The hiring panel will assess technical depth across core architecture, hands-on coding ability, " +
-                   $"and team communication under the STAR framework. Review the questions and rubric below to prepare concise, high-impact responses.";
+            return $"Technical Career Coach Guideline for the '{targetRole}' position. " +
+                   $"Rather than testing with isolated interview questions, this guide identifies the fundamental " +
+                   $"theoretical pillars, core architectural mechanisms, and hands-on implementation priorities required " +
+                   $"by the hiring team. Review the focus areas below to guide your study sessions.";
         }
 
-        private static List<InterviewQuestionDto> BuildTechnicalQuestions(string title, string description)
+        private static List<StudyFocusAreaDto> BuildKeyTheoreticalAreas(string title, string description)
         {
-            var combinedText = $"{title} {description}".ToLowerInvariant();
-            var questions = new List<InterviewQuestionDto>();
+            var combined = $"{title} {description}".ToLowerInvariant();
+            var list = new List<StudyFocusAreaDto>();
 
-            // .NET / C# Question
-            if (combinedText.Contains(".net") || combinedText.Contains("c#") || combinedText.Contains("backend") || combinedText.Contains("full-stack") || combinedText.Contains("developer"))
+            // ML / AI theoretical focus if relevant
+            if (combined.Contains("machine learning") || combined.Contains("ai ") || combined.Contains("data scientist") || combined.Contains("deep learning"))
             {
-                questions.Add(new InterviewQuestionDto
+                list.Add(new StudyFocusAreaDto
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Question = "How does asynchronous programming work in .NET with async/await, and what are the common pitfalls regarding SynchronizationContext and Task.Run?",
-                    Category = "Backend & C# / .NET",
-                    Difficulty = "Senior",
-                    ExpectedAnswerGuideline = "The candidate should explain state machine generation by the Roslyn compiler, TaskCompletionSource, avoiding blocking calls (.Result, .Wait()) which lead to thread pool starvation, and using ConfigureAwait(false) in libraries.",
-                    SampleAnswer = "When a method is marked 'async', the compiler generates an IAsyncStateMachine. Awaiting an uncompleted Task yields execution back to the caller while registering a continuation callback. In server applications like ASP.NET Core, there is no custom SynchronizationContext, so continuations resume on any available ThreadPool worker thread.",
-                    KeyEvaluationPoints = new List<string>
+                    Title = "Focus on Supervised Learning Models & Evaluation Metrics",
+                    Section = "Key Theoretical Areas",
+                    Priority = "High Priority",
+                    EstimatedStudyTime = "45 mins",
+                    Overview = "Analyze the mathematical and conceptual foundations of supervised classification and regression models versus unsupervised clustering.",
+                    ConceptsToReview = new List<string>
                     {
-                        "Understands ThreadPool vs UI SynchronizationContext",
-                        "Identifies deadlock risks with .GetAwaiter().GetResult()",
-                        "Mentions ValueTask for zero-allocation high-throughput scenarios"
+                        "Bias-Variance Tradeoff: High bias (underfitting) versus high variance (overfitting) and regularization methods (L1 Lasso, L2 Ridge).",
+                        "Evaluation Metrics: Precision, Recall, F1-Score, ROC-AUC, and Confusion Matrix interpretations across imbalanced datasets.",
+                        "Optimization Theory: Cost functions, Gradient Descent variants (Stochastic, Mini-Batch, Adam), and convergence behavior."
                     },
-                    ProTip = "Highlight real-world examples of preventing thread pool exhaustion in production microservices."
+                    PracticalApplication = "Be prepared to justify model selection (e.g. tree-based gradient boosting vs neural networks) on tabular business data under explainability constraints.",
+                    CoachTip = "Ground your rationale in business trade-offs: model interpretability, compute training cost, and inference latency."
                 });
             }
 
-            // React / Frontend Question
-            if (combinedText.Contains("react") || combinedText.Contains("frontend") || combinedText.Contains("full-stack") || combinedText.Contains("ui") || combinedText.Contains("web"))
+            // Distributed Systems Theory
+            list.Add(new StudyFocusAreaDto
             {
-                questions.Add(new InterviewQuestionDto
+                Id = Guid.NewGuid().ToString(),
+                Title = "Review Distributed Systems Architecture & Reliability Theory",
+                Section = "Key Theoretical Areas",
+                Priority = "High Priority",
+                EstimatedStudyTime = "40 mins",
+                Overview = "Brush up on fundamental distributed systems principles required for modern microservices and multi-tier enterprise web applications.",
+                ConceptsToReview = new List<string>
+                {
+                    "CAP Theorem & PACELC: Consistency versus Availability trade-offs under network partitions, and Eventual Consistency models.",
+                    "Clean Architecture & DDD: Separation of concerns, domain entities, repository abstraction, and dependency inversion.",
+                    "Resiliency Theory: Circuit Breakers, Retry with Exponential Backoff + Jitter, Bulkheads, and graceful degradation."
+                },
+                PracticalApplication = "Focus on designing asynchronous event-driven pipelines using message brokers to decouple write-heavy ingestion services.",
+                CoachTip = "Avoid pitching monolithic perfection; interviewers look for candidates who proactively articulate single points of failure and failure containment."
+            });
+
+            // REST API Design Patterns
+            list.Add(new StudyFocusAreaDto
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = "Review REST API Design Patterns & Idempotent Contract Standards",
+                Section = "Key Theoretical Areas",
+                Priority = "Core Requirement",
+                EstimatedStudyTime = "35 mins",
+                Overview = "Revisit resource-oriented HTTP API guidelines, status code ergonomics, idempotency semantics, and contract versioning.",
+                ConceptsToReview = new List<string>
+                {
+                    "HTTP Verb Semantics: Safe vs Idempotent methods (GET, HEAD vs PUT, DELETE vs POST).",
+                    "Idempotency Keys: Header-based UUID deduplication strategies preventing duplicate processing during network retries.",
+                    "Error Payload Standards: RFC 7807 Problem Details for HTTP APIs, centralized exception middleware, and standard error shapes."
+                },
+                PracticalApplication = "Walk through how you design pagination (Cursor-based vs Offset-based) for high-scale listings to maintain deterministic read consistency.",
+                CoachTip = "Emphasize contract-first design with OpenAPI/Swagger and zero breaking changes across minor API revisions."
+            });
+
+            // Database Normalization & Indexing Theory
+            list.Add(new StudyFocusAreaDto
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = "Review Database Normalization, Indexing Theory & MVCC",
+                Section = "Key Theoretical Areas",
+                Priority = "High Priority",
+                EstimatedStudyTime = "40 mins",
+                Overview = "Strengthen theoretical understanding of relational database engines, indexing structures, and transaction isolation levels.",
+                ConceptsToReview = new List<string>
+                {
+                    "Relational Normalization: 1NF, 2NF, 3NF versus intentional denormalization for read-heavy reporting views.",
+                    "B-Tree Indexing Internals: Node fan-out, leaf node linked lists, composite index column ordering (Leftmost Prefix rule).",
+                    "ACID & Transaction Isolation: Read Committed vs Repeatable Read vs Serializable, Dirty Reads, Non-repeatable Reads, Phantom Reads."
+                },
+                PracticalApplication = "Explain how PostgreSQL's Multi-Version Concurrency Control (MVCC) eliminates read locks while managing table bloat via VACUUM.",
+                CoachTip = "Connect theoretical indexing to measurable business results—e.g., changing index order turning an unindexed 2.4s table scan into a 4ms index seek."
+            });
+
+            return list;
+        }
+
+        private static List<StudyFocusAreaDto> BuildTechnicalCoreConcepts(string title, string description)
+        {
+            var combined = $"{title} {description}".ToLowerInvariant();
+            var list = new List<StudyFocusAreaDto>();
+
+            // React Virtual DOM
+            if (combined.Contains("react") || combined.Contains("frontend") || combined.Contains("full-stack") || combined.Contains("web") || combined.Contains("ui"))
+            {
+                list.Add(new StudyFocusAreaDto
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Question = "Explain how React 18's Concurrent Mode and Fiber architecture optimize UI rendering performance during heavy state transitions.",
-                    Category = "Frontend & React",
-                    Difficulty = "Mid-Level",
-                    ExpectedAnswerGuideline = "Discuss Fiber nodes as units of work that can be paused, aborted, or prioritized. Mention useTransition, useDeferredValue, and how React avoids blocking the main JavaScript thread.",
-                    SampleAnswer = "Prior to Fiber, React reconciliation was synchronous and recursive. Fiber introduced a linked list of virtual stack frames. With React 18 Concurrent Features, updates can be marked as non-urgent transitions, allowing high-priority user interactions (like typing in an input) to preempt large DOM updates.",
-                    KeyEvaluationPoints = new List<string>
+                    Title = "Understand React Virtual DOM & Concurrent Reconciliation",
+                    Section = "Technical Core Concepts",
+                    Priority = "High Priority",
+                    EstimatedStudyTime = "45 mins",
+                    Overview = "Deep dive into React 18's internal rendering pipeline, Fiber architecture, and how UI mutations are scheduled without dropping frames.",
+                    ConceptsToReview = new List<string>
                     {
-                        "Reconciliation vs Commit phase distinction",
-                        "Practical usage of useTransition and startTransition",
-                        "Avoiding unnecessary re-renders with memoization (useMemo/useCallback)"
+                        "Fiber Linked-List Unit of Work: Interruptible rendering, work-in-progress trees, and Reconciliation vs Commit phases.",
+                        "Concurrent Features: Practical usage of useTransition and useDeferredValue for non-urgent state updates.",
+                        "Render Optimization: Identifying re-render triggers, shallow prop comparison in React.memo, and stable function references with useCallback."
                     },
-                    ProTip = "Relate this to smooth user experiences in dashboard tables and search inputs."
+                    PracticalApplication = "Focus on diagnosing excessive re-renders using React DevTools Profiler and structuring component trees to isolate high-frequency state.",
+                    CoachTip = "Emphasize user experience metrics: preventing UI input freezing during heavy client-side filtering or data table renders."
                 });
             }
 
-            // Database / SQL / EF Core Question
-            questions.Add(new InterviewQuestionDto
+            // .NET Asynchronous Internals
+            if (combined.Contains(".net") || combined.Contains("c#") || combined.Contains("backend") || combined.Contains("full-stack"))
+            {
+                list.Add(new StudyFocusAreaDto
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Title = "Review .NET Asynchronous Internals & Thread Pool Scheduling",
+                    Section = "Technical Core Concepts",
+                    Priority = "High Priority",
+                    EstimatedStudyTime = "45 mins",
+                    Overview = "Master how the CLR handles asynchronous state machines, task scheduling, and how to avoid thread pool exhaustion in production microservices.",
+                    ConceptsToReview = new List<string>
+                    {
+                        "IAsyncStateMachine Generation: How the Roslyn compiler transforms async methods into state machines with continuation callbacks.",
+                        "ThreadPool & SynchronizationContext: Why ASP.NET Core has no SynchronizationContext and how work resumes on worker threads.",
+                        "Pitfalls & Starvation: Blocking on async code (.Result, .Wait(), .GetAwaiter().GetResult()) leading to thread pool starvation under load.",
+                        "ValueTask vs Task: Utilizing ValueTask for allocation-free paths when operations complete synchronously from in-memory cache."
+                    },
+                    PracticalApplication = "Demonstrate knowledge of diagnosing thread pool starvation using dotnet-dump or dotnet-counters in containerized deployments.",
+                    CoachTip = "Highlight that writing async code is not just about syntax, but about maximizing server throughput and hardware utilization."
+                });
+            }
+
+            // Entity Framework Core Execution Pipeline
+            list.Add(new StudyFocusAreaDto
             {
                 Id = Guid.NewGuid().ToString(),
-                Question = "How do you detect, diagnose, and resolve N+1 query problems in Entity Framework Core or PostgreSQL database layers?",
-                Category = "Databases & Architecture",
-                Difficulty = "Mid-Level",
-                ExpectedAnswerGuideline = "Explain eager loading (.Include, .ThenInclude), split queries (.AsSplitQuery()), projection via .Select(), and logging SQL via EF Core logging or pg_stat_statements.",
-                SampleAnswer = "An N+1 problem occurs when a parent query executes once and child entities are lazy-loaded individually in a loop. We resolve this by eager loading related tables using .Include(), using .AsNoTracking() for read-only queries, and compiling specific projections with .Select() to pull only needed columns.",
-                KeyEvaluationPoints = new List<string>
+                Title = "Master Entity Framework Core Query Pipelines & N+1 Prevention",
+                Section = "Technical Core Concepts",
+                Priority = "Core Requirement",
+                EstimatedStudyTime = "35 mins",
+                Overview = "Understand how LINQ expression trees are translated into parameterized SQL and how to tune database access pipelines.",
+                ConceptsToReview = new List<string>
                 {
-                    "Differences between Eager, Lazy, and Explicit Loading",
-                    "Impact of cartesian explosion in complex JOIN queries",
-                    "Database indexing strategies on foreign keys"
+                    "Expression Tree Translation: Client vs Server evaluation boundaries and parameterized query generation.",
+                    "Eager vs Split Queries: Resolving Cartesian product explosions in multi-collection joins using .AsSplitQuery().",
+                    "Change Tracker Overhead: Leveraging .AsNoTracking() for read-only endpoints and projecting specific columns via .Select().",
+                    "N+1 Query Detection: Recognizing lazy loading traps in loops and resolving them through explicit or eager .Include() graphs."
                 },
-                ProTip = "Mention enabling EF Core query logging in development or using pg_stat_statements in PostgreSQL."
+                PracticalApplication = "Be prepared to demonstrate how enabling EF Core SQL logging during development uncovers hidden query execution overhead.",
+                CoachTip = "Show mastery by explaining that ORMs are tools for productivity, but query performance must always be validated against generated SQL."
             });
 
-            // System Design / Microservices / API Design
-            questions.Add(new InterviewQuestionDto
+            // Caching Topologies
+            list.Add(new StudyFocusAreaDto
             {
                 Id = Guid.NewGuid().ToString(),
-                Question = "Design an idempotent RESTful API for handling payments or job applications where network retries might occur.",
-                Category = "System Design & APIs",
-                Difficulty = "Senior",
-                ExpectedAnswerGuideline = "Describe using unique Idempotency Keys (UUIDs) passed in headers, distributed locks or database unique constraints, atomic transactions, and caching previous response payloads in Redis or PostgreSQL.",
-                SampleAnswer = "The client generates a unique idempotency key for mutations. The server checks a distributed store (e.g. Redis or an IdempotencyRecords DB table). If processing, it waits or returns 409 Conflict. If already completed, it returns the cached response. If new, it completes the operation within an ACID transaction.",
-                KeyEvaluationPoints = new List<string>
+                Title = "Review Caching Topologies & Distributed Invalidation Strategies",
+                Section = "Technical Core Concepts",
+                Priority = "Core Requirement",
+                EstimatedStudyTime = "30 mins",
+                Overview = "Study multi-tier caching architectures to balance sub-millisecond read latency against data consistency requirements.",
+                ConceptsToReview = new List<string>
                 {
-                    "Idempotency Key headers and client retry policies",
-                    "Handling race conditions with database unique indexes or distributed locks",
-                    "Safe vs Idempotent HTTP methods (GET/PUT vs POST)"
+                    "Caching Patterns: Cache-Aside (Lazy Loading), Write-Through, Write-Behind, and Refresh-Ahead tradeoffs.",
+                    "Distributed Caching with Redis: Data structures (Hashes, Sorted Sets), TTL expiration policies, and Redis connection multiplexing.",
+                    "Cache Stampede / Thundering Herd: Mitigating simultaneous cache misses on popular keys using probabilistic early expiration or distributed locks."
                 },
-                ProTip = "Structure your answer from Client Request -> API Gateway -> Idempotency Filter -> Transactional DB."
+                PracticalApplication = "Discuss implementing memory cache for static reference metadata alongside distributed Redis for shared candidate sessions.",
+                CoachTip = "Always have an answer for 'What happens when the cache fails?' (e.g. circuit breaker fallback to DB with rate-limiting)."
             });
 
-            return questions;
+            return list;
         }
 
-        private static List<BehavioralQuestionDto> BuildBehavioralQuestions(string title)
+        private static List<StudyFocusAreaDto> BuildPracticalImplementationFocus(string title, string description)
         {
-            return new List<BehavioralQuestionDto>
+            var combined = $"{title} {description}".ToLowerInvariant();
+            var list = new List<StudyFocusAreaDto>();
+
+            // Resilient HTTP Communication
+            list.Add(new StudyFocusAreaDto
             {
-                new BehavioralQuestionDto
+                Id = Guid.NewGuid().ToString(),
+                Title = "Practical Focus: Building Resilient Microservice Communication",
+                Section = "Practical Implementation Focus",
+                Priority = "Practical Focus",
+                EstimatedStudyTime = "40 mins",
+                Overview = "Hands-on implementation guidelines for connecting distributed services reliably in cloud environments.",
+                ConceptsToReview = new List<string>
                 {
-                    Id = Guid.NewGuid().ToString(),
-                    Question = "Describe a situation where you had a strong technical disagreement with a teammate or lead regarding architecture or implementation. How did you resolve it?",
-                    Competency = "Collaboration & Conflict Management",
-                    StarGuidance = new StarGuidanceDto
-                    {
-                        Situation = "Set the stage clearly: State the project context, the technical choice in dispute (e.g., REST vs GraphQL or SQL vs NoSQL), and why both sides had valid concerns.",
-                        Task = "Clarify your responsibility: Explain that your goal was not to 'win' the argument, but to find the lowest-risk, highest-performance solution for the team.",
-                        Action = "Detail your constructive actions: Did you build a quick prototype, benchmark metrics, or document trade-offs in an Architecture Decision Record (ADR)?",
-                        Result = "State the positive outcome: The team agreed on objective data, delivered the feature on schedule, and strengthened technical communication."
-                    },
-                    WhatToAvoid = "Avoid blaming team members or saying 'I was right and they were wrong'. Focus on collaborative consensus and data-driven benchmarks."
+                    "Polly Resilience Pipelines: Configuring Circuit Breaker, Retry with Jitter, and Timeout policies in .NET.",
+                    "IHttpClientFactory Best Practices: Avoiding socket exhaustion, managing DNS refresh TTLs, and typed client injection.",
+                    "Correlation IDs & Distributed Tracing: Propagating X-Correlation-ID across upstream headers for end-to-end request visibility."
                 },
-                new BehavioralQuestionDto
+                PracticalApplication = "Practice describing a scenario where a third-party dependency degraded, and your circuit breaker protected internal services from cascading failure.",
+                CoachTip = "Focus on concrete metrics: e.g. breaking circuit after 5 consecutive failures within a 10-second window, testing recovery with half-open state."
+            });
+
+            // Front-End Architecture
+            if (combined.Contains("react") || combined.Contains("frontend") || combined.Contains("full-stack"))
+            {
+                list.Add(new StudyFocusAreaDto
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Question = "Tell me about a high-severity production outage or critical bug you discovered. How did you handle the pressure and post-incident process?",
-                    Competency = "Crisis Management & Resilience",
-                    StarGuidance = new StarGuidanceDto
+                    Title = "Practical Focus: Front-End Architecture & Bundle Optimization",
+                    Section = "Practical Implementation Focus",
+                    Priority = "Practical Focus",
+                    EstimatedStudyTime = "40 mins",
+                    Overview = "Practical workflows for structuring scalable React component trees with minimal bundle footprints and crisp interaction speeds.",
+                    ConceptsToReview = new List<string>
                     {
-                        Situation = "Describe an unexpected production failure (e.g., database connection spike, bad deployment, third-party API timeout) and its business impact.",
-                        Task = "Your immediate objective: Mitigate user downtime, isolate the root cause, and maintain clear status communication with stakeholders.",
-                        Action = "Steps taken: Rolled back the deployment or applied hotfix, reviewed telemetry logs, stabilized traffic with circuit breakers, and led a blameless post-mortem.",
-                        Result = "Quantify recovery: Restored service in under 20 minutes and introduced automated regression tests and health-check alerts to ensure zero recurrence."
+                        "Route-Level Code Splitting: Implementing React.lazy() and Suspense boundaries for heavy chart libraries and modal dialogs.",
+                        "Optimistic UI Updates: Updating local state immediately during mutations with automatic rollback on network rejection.",
+                        "Form Architecture & Validation: Managing uncontrolled vs controlled inputs, debounced search filtering, and field-level validation."
                     },
-                    WhatToAvoid = "Avoid dwelling on panic or finger-pointing. Interviewers want to hear about calm, methodical debugging and long-term preventative safeguards."
-                }
-            };
+                    PracticalApplication = "Review how the candidate dashboard uses responsive layouts, CSS variables, and clean tab transitions without re-fetching unnecessary server data.",
+                    CoachTip = "Emphasize accessibility and visual responsiveness: ensuring loading skeletons prevent cumulative layout shifts (CLS)."
+                });
+            }
+
+            // Database Query Plan Inspection
+            list.Add(new StudyFocusAreaDto
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = "Practical Focus: Query Diagnostics & EXPLAIN ANALYZE Inspection",
+                Section = "Practical Implementation Focus",
+                Priority = "Practical Focus",
+                EstimatedStudyTime = "35 mins",
+                Overview = "Hands-on techniques for identifying slow database queries and optimizing schema performance in production.",
+                ConceptsToReview = new List<string>
+                {
+                    "Reading Query Execution Plans: Identifying Sequential Scans, Index Scans, Bitmap Heap Scans, and Nested Loop Joins.",
+                    "PostgreSQL Index Optimization: Choosing B-Tree for equality/range queries, partial indexes for filtered subsets, and covering indexes with INCLUDE.",
+                    "Locking & Concurrency Testing: Identifying deadlock potentials between concurrent UPDATE statements and using SELECT FOR UPDATE SKIP LOCKED for task queues."
+                },
+                PracticalApplication = "Demonstrate familiarity with executing EXPLAIN (ANALYZE, BUFFERS) in pgAdmin or psql to pinpoint buffer cache hit ratios.",
+                CoachTip = "Interviewers love hearing how you optimized a slow real-world endpoint by replacing an unindexed multi-table JOIN with a targeted composite index."
+            });
+
+            return list;
         }
 
-        private static List<string> BuildProTips(string title)
+        private static List<string> BuildCareerCoachTips(string targetRole)
         {
             return new List<string>
             {
-                "Practice the 'Talk-While-Coding' technique: Interviewers value your thought process, assumption validation, and edge-case awareness over quiet perfection.",
-                "Prepare 3 insightful questions for the interviewer: E.g., 'What does the path to production look like for a new feature?' and 'How does the engineering team manage technical debt?'.",
-                "Review the Company & Tech Stack: Research the company's recent engineering blogs, open-source repositories, and platform scaling challenges.",
-                "Use the STAR Technique for behavioral answers: Keep answers structured (Situation: 15%, Task: 15%, Action: 50%, Result: 20%). Always quantify the outcome."
+                "Always Articulate Trade-Offs: Senior engineers are evaluated on how they balance competing constraints (e.g. consistency vs latency, rapid delivery vs long-term maintainability). Avoid claiming any technology is a 'silver bullet'.",
+                "Structure Complex Explanations Top-Down: Begin with a clear 30-second high-level architectural summary before diving into internal execution mechanics or code syntax.",
+                "Anchor Theory in Real Production Incidents: Whenever you explain a theoretical concept (like circuit breakers or indexing), reference a production scenario or technical challenge you personally addressed.",
+                "Inquire About Their Architecture: During the interview, ask insightful questions about their engineering bottlenecks, deployment cadence, and tech debt priorities to demonstrate senior engineering curiosity."
             };
         }
 
-        private static List<string> BuildPreparationChecklist(string title)
+        private static List<string> BuildStudyChecklist(string targetRole)
         {
             return new List<string>
             {
-                "Review core algorithms, data structures (HashMaps, Trees, Graphs), and Big-O time/space complexity.",
-                "Set up and test your development environment, webcam, microphone, and IDE keyboard shortcuts.",
-                "Rehearse a concise 90-second elevator pitch summarizing your technical journey, top achievements, and why this role excites you.",
-                "Prepare concrete examples of system trade-offs: Latency vs Throughput, Consistency vs Availability (CAP theorem).",
-                "Review your Digital CV and project highlights so you can effortlessly deep-dive into any line item."
+                "Review the Key Theoretical Areas (Distributed Architecture, REST Standards, Database Normalization)",
+                "Deep dive into Technical Core Concepts (Virtual DOM reconciliation, CLR async scheduling, EF Core pipelines)",
+                "Walk through Practical Implementation scenarios (Resilient HTTP calls, query plan inspection with EXPLAIN ANALYZE)",
+                "Prepare 2-3 concise architectural case studies from your past experience detailing technical trade-offs",
+                "Conduct a 30-minute review of the employer's domain, engineering stack, and product architecture"
             };
         }
+    }
+
+    /// <summary>
+    /// Storage container serialized into the database for full fidelity study guidelines.
+    /// </summary>
+    internal sealed class StudyGuidelineStore
+    {
+        public List<StudyFocusAreaDto> KeyTheoreticalAreas { get; set; } = new();
+        public List<StudyFocusAreaDto> TechnicalCoreConcepts { get; set; } = new();
+        public List<StudyFocusAreaDto> PracticalImplementationFocus { get; set; } = new();
+        public List<string> ProTips { get; set; } = new();
+        public List<string> PreparationChecklist { get; set; } = new();
     }
 }

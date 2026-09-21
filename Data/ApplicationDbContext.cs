@@ -244,7 +244,8 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(g => g.Candidate)
                       .WithMany()
                       .HasForeignKey(g => g.CandidateId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
 
                 entity.HasOne(g => g.Job)
                       .WithMany()

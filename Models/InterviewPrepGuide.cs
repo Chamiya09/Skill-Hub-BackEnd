@@ -12,12 +12,14 @@ namespace Skill_Hub_BackEnd.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        /// <summary>Foreign key to the candidate (User).</summary>
-        [Required]
-        public Guid CandidateId { get; set; }
+        /// <summary>Optional foreign key to the candidate (User).</summary>
+        public Guid? CandidateId { get; set; }
 
         [ForeignKey(nameof(CandidateId))]
         public User? Candidate { get; set; }
+
+        /// <summary>Optional foreign key to the specific JobApplication.</summary>
+        public Guid? ApplicationId { get; set; }
 
         /// <summary>Optional foreign key to an applied JobVacancy on the platform.</summary>
         public Guid? JobId { get; set; }
