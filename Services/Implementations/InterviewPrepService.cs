@@ -335,6 +335,134 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             return await GetGuideByIdAsync(entity.Id, cancellationToken);
         }
 
+        public async Task<List<InterviewPrepGuideDto>> GetCandidateGuidesAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default)
+        {
+            // 1. Fetch all existing guides for this candidate (or demo guides if candidateId is default)
+            var guides = await _dbContext.InterviewPrepGuides
+                .AsNoTracking()
+                .Include(g => g.JobApplication)
+                    .ThenInclude(a => a!.Job)
+                        .ThenInclude(j => j!.Company)
+                .Include(g => g.Job)
+                    .ThenInclude(j => j!.Company)
+                .Where(g => g.CandidateId == candidateId || g.CandidateId == null)
+                .OrderByDescending(g => g.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            var results = new List<InterviewPrepGuideDto>();
+            var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entity in guides)
+            {
+                var studyStore = DeserializeSafe<StudyGuidelineStore>(entity.TechnicalQuestionsJson);
+
+                var theoreticalAreas = studyStore.KeyTheoreticalAreas?.Count > 0 
+                    ? studyStore.KeyTheoreticalAreas 
+                    : BuildKeyTheoreticalAreas(entity.JobTitle, entity.JobDescription);
+
+                var coreConcepts = studyStore.TechnicalCoreConcepts?.Count > 0 
+                    ? studyStore.TechnicalCoreConcepts 
+                    : BuildTechnicalCoreConcepts(entity.JobTitle, entity.JobDescription);
+
+                var practicalFocus = studyStore.PracticalImplementationFocus?.Count > 0 
+                    ? studyStore.PracticalImplementationFocus 
+                    : BuildPracticalImplementationFocus(entity.JobTitle, entity.JobDescription);
+
+                var proTips = DeserializeSafe<List<string>>(entity.ProTipsJson);
+                if (proTips.Count == 0) proTips = BuildCareerCoachTips(entity.TargetRole ?? entity.JobTitle);
+
+                var checklist = DeserializeSafe<List<string>>(entity.ChecklistJson);
+                if (checklist.Count == 0) checklist = BuildStudyChecklist(entity.TargetRole ?? entity.JobTitle);
+
+                var companyName = entity.JobApplication?.Job?.Company?.CompanyName
+                    ?? entity.Job?.Company?.CompanyName
+                    ?? "Enterprise Partner";
+
+                var location = entity.JobApplication?.Job?.Location
+                    ?? entity.Job?.Location;
+
+                var employmentType = entity.JobApplication?.Job?.EmploymentType
+                    ?? entity.Job?.EmploymentType;
+
+                var appStatus = entity.JobApplication?.Status ?? "Interview";
+                var appliedDate = entity.JobApplication?.AppliedDate;
+
+                var key = $"{companyName}-{entity.JobTitle}";
+                if (seenKeys.Add(key))
+                {
+                    results.Add(new InterviewPrepGuideDto
+                    {
+                        Id = entity.Id,
+                        CandidateId = entity.CandidateId ?? candidateId,
+                        ApplicationId = entity.ApplicationId,
+                        JobId = entity.JobId,
+                        JobTitle = entity.JobTitle,
+                        TargetRole = entity.TargetRole ?? entity.JobTitle,
+                        CompanyName = companyName,
+                        Location = location,
+                        EmploymentType = employmentType,
+                        ApplicationStatus = appStatus,
+                        AppliedDate = appliedDate,
+                        InterviewDate = appliedDate?.AddDays(7),
+                        JobDescription = entity.JobDescription,
+                        RoleOverviewSummary = entity.RoleOverviewSummary ?? string.Empty,
+                        KeyTheoreticalAreas = theoreticalAreas,
+                        TechnicalCoreConcepts = coreConcepts,
+                        PracticalImplementationFocus = practicalFocus,
+                        ProTips = proTips,
+                        PreparationChecklist = checklist,
+                        CreatedAt = entity.CreatedAt
+                    });
+                }
+            }
+
+            // 2. Also check if candidate has any active 'Interview' stage applications without a generated guide
+            var interviewApps = await _dbContext.JobApplications
+                .AsNoTracking()
+                .Include(a => a.Job)
+                    .ThenInclude(j => j!.Company)
+                .Where(a => a.CandidateId == candidateId && (a.Status == "Interview" || a.Status == "interview"))
+                .ToListAsync(cancellationToken);
+
+            foreach (var app in interviewApps)
+            {
+                var company = app.Job?.Company?.CompanyName ?? "Enterprise Partner";
+                var title = app.Job?.Title ?? "Software Engineer";
+                var key = $"{company}-{title}";
+
+                if (!seenKeys.Contains(key))
+                {
+                    try
+                    {
+                        var newGuide = await GenerateGuideAsync(
+                            candidateId,
+                            new GenerateInterviewPrepRequestDto
+                            {
+                                CandidateId = candidateId,
+                                ApplicationId = app.Id,
+                                JobId = app.JobId,
+                                JobTitle = title,
+                                TargetRole = title,
+                                JobDescription = app.Job?.Description ?? string.Empty
+                            },
+                            cancellationToken);
+
+                        seenKeys.Add(key);
+                        results.Add(newGuide);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not auto-generate guide for interview app {AppId}", app.Id);
+                    }
+                }
+            }
+
+            return results;
+        }
+
+
         public async Task<InterviewPrepEligibilityDto> CheckEligibilityAsync(
             Guid candidateId,
             Guid? applicationId = null,

@@ -33,6 +33,14 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Retrieves all available interview preparation guides for a candidate.
+        /// </summary>
+        Task<List<InterviewPrepGuideDto>> GetCandidateGuidesAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default);
+
+
+        /// <summary>
         /// Checks whether the candidate is eligible for interview preparation.
         /// Only allowed if the candidate application is in 'Assessment' or 'Interview' (or 'Shortlisted').
         /// If 'Rejected', returns not eligible with a 403 reason.

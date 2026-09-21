@@ -139,6 +139,19 @@ namespace Skill_Hub_BackEnd.Controllers
             return Ok(guide);
         }
 
+        /// <summary>
+        /// GET /api/interviewprep/my-guides
+        /// Returns all available interview preparation guides for the current candidate.
+        /// </summary>
+        [HttpGet("my-guides")]
+        public async Task<ActionResult<List<InterviewPrepGuideDto>>> GetMyGuides(CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+            var guides = await _interviewPrepService.GetCandidateGuidesAsync(candidateId, cancellationToken);
+            return Ok(guides);
+        }
+
+
         private Guid? GetCandidateId()
         {
             var subject = User.FindFirstValue(ClaimTypes.NameIdentifier)
