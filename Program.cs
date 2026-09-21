@@ -88,6 +88,8 @@ builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
+// ── AI Interview Preparation Guide (Student 1) ───────────────────────────────
+builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
 // ── NeonDB Serverless Warm-up & Keep-Alive (prevents cold-start TimeoutExceptions) ──
 builder.Services.AddHostedService<NeonDbWarmupService>();
 builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
@@ -100,6 +102,15 @@ var aiAgentBaseUrl = builder.Configuration["AiAgent:BaseUrl"]
         "Missing required configuration value: AiAgent:BaseUrl");
 
 builder.Services.AddHttpClient<IPythonCvEvalClient, PythonCvEvalClient>(client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(110);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
+// ── Student 1: Python Interview Prep Guide Client ────────────────────────────
+builder.Services.AddHttpClient<IPythonInterviewPrepClient, PythonInterviewPrepClient>(client =>
 {
     client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(110);
@@ -601,7 +612,33 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_CvEvaluationResults_Candidate_Job_Date""
                 ON public.""CvEvaluationResults"" (""CandidateId"", ""JobId"", ""CreatedAt"" DESC);",
             @"CREATE INDEX IF NOT EXISTS ""IX_CvEvaluationResults_ApprovalStatus""
-                ON public.""CvEvaluationResults"" (""ApprovalStatus"");"
+                ON public.""CvEvaluationResults"" (""ApprovalStatus"");",
+
+            // ── InterviewPrepGuides (Student 1: AI Interview Prep Guide) ─────────
+            @"CREATE TABLE IF NOT EXISTS public.""InterviewPrepGuides"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""CandidateId"" uuid,
+                ""ApplicationId"" uuid,
+                ""JobId"" uuid REFERENCES public.""JobVacancies""(""Id"") ON DELETE SET NULL,
+                ""JobTitle"" character varying(200) NOT NULL,
+                ""TargetRole"" character varying(200),
+                ""JobDescription"" text NOT NULL,
+                ""TechnicalQuestionsJson"" jsonb DEFAULT '[]'::jsonb,
+                ""BehavioralQuestionsJson"" jsonb DEFAULT '[]'::jsonb,
+                ""ProTipsJson"" jsonb DEFAULT '[]'::jsonb,
+                ""ChecklistJson"" jsonb DEFAULT '[]'::jsonb,
+                ""RoleOverviewSummary"" text,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"ALTER TABLE public.""InterviewPrepGuides"" ALTER COLUMN ""CandidateId"" DROP NOT NULL;",
+            @"ALTER TABLE public.""InterviewPrepGuides"" DROP CONSTRAINT IF EXISTS ""InterviewPrepGuides_CandidateId_fkey"";",
+            @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_Candidate_Date""
+                ON public.""InterviewPrepGuides"" (""CandidateId"", ""CreatedAt"" DESC);",
+            @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_ApplicationId""
+                ON public.""InterviewPrepGuides"" (""ApplicationId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_JobId""
+                ON public.""InterviewPrepGuides"" (""JobId"");"
         };
 
         foreach (var ddl in ddlStatements)
