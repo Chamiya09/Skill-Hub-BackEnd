@@ -79,7 +79,7 @@ builder.Services.AddScoped<IMatchService, MatchService>();
 builder.Services.AddScoped<IJobRecommendationService, JobRecommendationService>();
 builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
-builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
+builder.Services.AddHttpClient<IPistonExecutionService, Judge0ExecutionService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 });
