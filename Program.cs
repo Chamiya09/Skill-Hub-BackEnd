@@ -88,6 +88,8 @@ builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
+// ── AI Interview Preparation Guide (Student 1) ───────────────────────────────
+builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
 // ── NeonDB Serverless Warm-up & Keep-Alive (prevents cold-start TimeoutExceptions) ──
 builder.Services.AddHostedService<NeonDbWarmupService>();
 builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>

@@ -23,6 +23,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<Assessment> Assessments => Set<Assessment>();
         public DbSet<Submission> Submissions => Set<Submission>();
         public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
+        public DbSet<InterviewPrepGuide> InterviewPrepGuides => Set<InterviewPrepGuide>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -226,6 +227,30 @@ namespace Skill_Hub_BackEnd.Data
                       .WithMany()
                       .HasForeignKey(r => r.JobId)
                       .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // InterviewPrepGuide Entity Configurations (Student 1)
+            modelBuilder.Entity<InterviewPrepGuide>(entity =>
+            {
+                entity.ToTable("InterviewPrepGuides", "public");
+                entity.HasIndex(g => new { g.CandidateId, g.CreatedAt });
+                entity.HasIndex(g => g.JobId);
+
+                entity.Property(g => g.TechnicalQuestionsJson).HasColumnType("jsonb");
+                entity.Property(g => g.BehavioralQuestionsJson).HasColumnType("jsonb");
+                entity.Property(g => g.ProTipsJson).HasColumnType("jsonb");
+                entity.Property(g => g.ChecklistJson).HasColumnType("jsonb");
+
+                entity.HasOne(g => g.Candidate)
+                      .WithMany()
+                      .HasForeignKey(g => g.CandidateId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(g => g.Job)
+                      .WithMany()
+                      .HasForeignKey(g => g.JobId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }
