@@ -147,7 +147,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var assessments = await _dbContext.Assessments
-                .Where(a => a.JobVacancyId == jobVacancyId && a.Status != "Archived")
+                .Where(a => a.JobVacancyId == jobVacancyId && a.Status == "Published")
                 .Include(a => a.Submissions)
                 .OrderByDescending(a => a.CreatedAt)
                 .ToListAsync(cancellationToken);
@@ -291,7 +291,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             {
                 Id = Guid.NewGuid(),
                 JobVacancyId = jobVacancyId,
-                Title = $"{job.Title} - AI Technical Challenge (Draft)",
+                Title = $"{job.Title} - AI Technical Challenge",
                 GeneratedQuestions = questionsJson,
                 FinalQuestions = questionsJson,
                 PassingThreshold = 60.00m,
@@ -749,97 +749,34 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var qMap = questions.ToDictionary(q => q.Id, q => q);
 
             var submittedAnswers = new List<SubmittedAnswerItemDto>();
-            decimal totalEarnedPoints = 0;
-            decimal totalMaxPoints = 0;
-            bool anyAutomatedTested = false;
 
             foreach (var ans in answersDto.Answers)
             {
                 qMap.TryGetValue(ans.QuestionId, out var q);
-                var questionMaxPoints = q?.Points ?? 10;
-                totalMaxPoints += questionMaxPoints;
-
-                var allTestCases = new List<TestCaseDto>();
-                if (q?.SampleTestCases != null) allTestCases.AddRange(q.SampleTestCases);
-                if (q?.HiddenTestCases != null) allTestCases.AddRange(q.HiddenTestCases);
-
-                var testCaseEvaluations = new List<TestCaseEvaluationItemDto>();
-                int passedCount = 0;
                 var lang = !string.IsNullOrWhiteSpace(ans.Language) ? ans.Language : (q?.Language ?? "python");
-
-                if (allTestCases.Count > 0 && !string.IsNullOrWhiteSpace(ans.SubmittedCode))
-                {
-                    anyAutomatedTested = true;
-                    int tcIdx = 1;
-                    foreach (var tc in allTestCases)
-                    {
-                        var execResult = await _pistonService.ExecuteCodeAsync(
-                            ans.SubmittedCode,
-                            lang,
-                            tc.Input,
-                            cancellationToken);
-
-                        var normalizedActual = execResult.Stdout.Trim().Replace("\r\n", "\n");
-                        var normalizedExpected = tc.ExpectedOutput.Trim().Replace("\r\n", "\n");
-                        bool isPassed = !execResult.IsError && string.Equals(normalizedActual, normalizedExpected, StringComparison.Ordinal);
-
-                        if (isPassed) passedCount++;
-
-                        testCaseEvaluations.Add(new TestCaseEvaluationItemDto
-                        {
-                            Index = tcIdx++,
-                            Input = tc.IsHidden ? "[Hidden Test Case]" : tc.Input,
-                            ExpectedOutput = tc.IsHidden ? "[Hidden Test Case]" : tc.ExpectedOutput,
-                            ActualOutput = tc.IsHidden && !isPassed ? "[Hidden Test Case - Output Mismatch]" : execResult.Stdout,
-                            Passed = isPassed,
-                            IsHidden = tc.IsHidden,
-                            ErrorMessage = execResult.IsError ? (execResult.CompileOutput ?? execResult.Stderr ?? execResult.ErrorMessage) : null
-                        });
-                    }
-                }
-
-                decimal questionScore = allTestCases.Count > 0
-                    ? Math.Round(((decimal)passedCount / allTestCases.Count) * questionMaxPoints, 2)
-                    : 0;
-
-                totalEarnedPoints += questionScore;
 
                 submittedAnswers.Add(new SubmittedAnswerItemDto
                 {
                     QuestionId = ans.QuestionId,
                     SubmittedCode = ans.SubmittedCode ?? string.Empty,
                     Language = lang,
-                    TestCasesPassed = passedCount,
-                    TotalTestCases = allTestCases.Count,
-                    Score = questionScore,
-                    TestCaseResults = testCaseEvaluations
+                    TestCasesPassed = 0,
+                    TotalTestCases = 0,
+                    Score = 0.00m,
+                    TestCaseResults = new List<TestCaseEvaluationItemDto>()
                 });
             }
 
-            decimal finalExamScore = totalMaxPoints > 0
-                ? Math.Round((totalEarnedPoints / totalMaxPoints) * 100m, 2)
-                : 0.00m;
-
-            finalExamScore = Math.Clamp(finalExamScore, 0.00m, 100.00m);
             var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             submission.Answers = JsonSerializer.Serialize(submittedAnswers, JsonOpts);
             submission.SubmittedAt = DateTime.UtcNow;
-            submission.ExamScore = finalExamScore;
-            submission.FinalWeightedScore = finalExamScore;
-
-            if (anyAutomatedTested)
-            {
-                submission.Status = finalExamScore >= passingThreshold ? "Passed" : "Graded";
-                submission.GradedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                submission.Status = "Under_Review";
-                submission.GradedAt = null;
-            }
-
+            submission.ExamScore = 0.00m;
+            submission.FinalWeightedScore = 0.00m;
+            submission.Status = "Under_Review";
+            submission.GradedAt = null;
             submission.UpdatedAt = DateTime.UtcNow;
+
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
@@ -870,7 +807,6 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var submissions = await _dbContext.Submissions
-                .AsNoTracking()
                 .Include(s => s.Assessment)
                 .Where(s => s.JobVacancyId == jobVacancyId && s.Status != "Assigned")
                 .OrderByDescending(s => s.SubmittedAt ?? s.CreatedAt)
@@ -878,6 +814,25 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (submissions.Count == 0)
                 return Array.Empty<SubmissionDetailDto>();
+
+            // Ensure any submitted exams that have not yet been manually reviewed by HR stay in Under_Review status
+            bool hasChanges = false;
+            foreach (var s in submissions)
+            {
+                if (s.SubmittedAt.HasValue && s.ReviewedBy == null && (s.Status == "Graded" || s.Status == "Passed"))
+                {
+                    s.Status = "Under_Review";
+                    s.ExamScore = 0.00m;
+                    s.FinalWeightedScore = 0.00m;
+                    s.GradedAt = null;
+                    s.UpdatedAt = DateTime.UtcNow;
+                    hasChanges = true;
+                }
+            }
+            if (hasChanges)
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
 
             var candidateIds = submissions.Select(s => s.CandidateId).Distinct().ToList();
             var candidates = await _dbContext.Users
