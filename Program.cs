@@ -92,7 +92,7 @@ builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
 builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
 // ── NeonDB Serverless Warm-up & Keep-Alive (prevents cold-start TimeoutExceptions) ──
 builder.Services.AddHostedService<NeonDbWarmupService>();
-builder.Services.AddHttpClient<IPistonExecutionService, PistonExecutionService>(client =>
+builder.Services.AddHttpClient<IPistonExecutionService, Judge0ExecutionService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 });
