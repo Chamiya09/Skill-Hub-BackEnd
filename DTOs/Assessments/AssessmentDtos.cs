@@ -92,5 +92,10 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         public DateTime? ExpiresAt { get; set; }
     }
+
+    public sealed class GenerateAiAssessmentRequestDto
+    {
+        public string? FocusArea { get; set; }
+    }
 }
 

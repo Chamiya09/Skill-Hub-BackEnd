@@ -118,6 +118,15 @@ builder.Services.AddHttpClient<IPythonInterviewPrepClient, PythonInterviewPrepCl
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
 
+// ── Student 3: Python Assessment Agent Client ──────────────────────────────
+builder.Services.AddHttpClient<IPythonAssessmentAgentClient, PythonAssessmentAgentClient>(client =>
+{
+    client.BaseAddress = new Uri(aiAgentBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(120);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
+
 
 
 // ==========================================

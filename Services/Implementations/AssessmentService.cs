@@ -21,15 +21,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         private readonly ApplicationDbContext _dbContext;
         private readonly ILogger<AssessmentService> _logger;
         private readonly IPistonExecutionService _pistonService;
+        private readonly IPythonAssessmentAgentClient _assessmentAgentClient;
 
         public AssessmentService(
             ApplicationDbContext dbContext,
             ILogger<AssessmentService> logger,
-            IPistonExecutionService pistonService)
+            IPistonExecutionService pistonService,
+            IPythonAssessmentAgentClient assessmentAgentClient)
         {
             _dbContext = dbContext;
             _logger = logger;
             _pistonService = pistonService;
+            _assessmentAgentClient = assessmentAgentClient;
         }
 
         #region 1. Assessment Creation & Management
@@ -250,6 +253,63 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             _dbContext.Assessments.Remove(assessment);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return true;
+        }
+
+        public async Task<AssessmentResponseDto> GenerateAiAssessmentDraftAsync(
+            Guid jobVacancyId,
+            Guid hrManagerId,
+            string? focusArea = null,
+            CancellationToken cancellationToken = default)
+        {
+            var job = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobVacancyId, cancellationToken);
+
+            if (job == null)
+                throw new KeyNotFoundException($"Job vacancy with ID '{jobVacancyId}' was not found.");
+
+            _logger.LogInformation(
+                "[AssessmentService] Requesting AI Question Generation for job {JobId} ('{Title}')...",
+                jobVacancyId, job.Title);
+
+            var aiResponse = await _assessmentAgentClient.GenerateQuestionAsync(
+                new PythonGenerateQuestionRequest
+                {
+                    JobVacancyId = jobVacancyId.ToString(),
+                    FocusArea = focusArea
+                },
+                cancellationToken);
+
+            var question = aiResponse.Question;
+            if (string.IsNullOrWhiteSpace(question.Id))
+                question.Id = $"q_{Guid.NewGuid():N}";
+
+            var questionsList = new List<CodingQuestionItemDto> { question };
+            var questionsJson = JsonSerializer.Serialize(questionsList, JsonOpts);
+
+            var assessment = new Assessment
+            {
+                Id = Guid.NewGuid(),
+                JobVacancyId = jobVacancyId,
+                Title = $"{job.Title} - AI Technical Challenge (Draft)",
+                GeneratedQuestions = questionsJson,
+                FinalQuestions = questionsJson,
+                PassingThreshold = 60.00m,
+                TimeLimitMinutes = 60,
+                CreatedBy = hrManagerId,
+                Status = "Draft",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.Assessments.Add(assessment);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[AssessmentService] Successfully generated AI draft assessment {AssessmentId} ('{Title}') with question '{QuestionTitle}' ({Language})",
+                assessment.Id, assessment.Title, question.Title, question.Language);
+
+            return MapToResponseDto(assessment, 0);
         }
 
         #endregion

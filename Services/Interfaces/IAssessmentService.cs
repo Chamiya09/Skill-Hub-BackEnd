@@ -43,6 +43,12 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid hrManagerId,
             CancellationToken cancellationToken = default);
 
+        Task<AssessmentResponseDto> GenerateAiAssessmentDraftAsync(
+            Guid jobVacancyId,
+            Guid hrManagerId,
+            string? focusArea = null,
+            CancellationToken cancellationToken = default);
+
         // Dispatching to Shortlisted Candidate (Incoming Contract from Student 2)
         Task<DispatchAssessmentResponseDto> DispatchAssessmentAsync(
             DispatchAssessmentRequestDto dto,

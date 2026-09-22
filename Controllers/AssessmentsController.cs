@@ -160,6 +160,27 @@ namespace Skill_Hub_BackEnd.Controllers
             }
         }
 
+        /// <summary>
+        /// Triggers the single AI Assessment Agent to generate a calibrated draft challenge for a job vacancy.
+        /// Stored in Draft status with candidate quarantine until HR approves/publishes.
+        /// </summary>
+        [HttpPost("job/{jobVacancyId:guid}/generate-ai")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(AssessmentResponseDto), StatusCodes.Status201Created)]
+        public async Task<IActionResult> GenerateAiAssessment(
+            Guid jobVacancyId,
+            [FromBody] GenerateAiAssessmentRequestDto? dto,
+            CancellationToken cancellationToken)
+        {
+            var hrManagerId = GetCurrentUserId();
+            var result = await _assessmentService.GenerateAiAssessmentDraftAsync(
+                jobVacancyId,
+                hrManagerId,
+                dto?.FocusArea,
+                cancellationToken);
+            return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
+        }
+
         #endregion
 
         #region 2. HR Dispatch Assessment (Modal Action)
