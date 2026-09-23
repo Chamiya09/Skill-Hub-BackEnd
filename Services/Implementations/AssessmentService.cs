@@ -259,6 +259,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Guid jobVacancyId,
             Guid hrManagerId,
             string? focusArea = null,
+            string? difficulty = "Medium",
             CancellationToken cancellationToken = default)
         {
             var job = await _dbContext.JobVacancies
@@ -269,14 +270,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new KeyNotFoundException($"Job vacancy with ID '{jobVacancyId}' was not found.");
 
             _logger.LogInformation(
-                "[AssessmentService] Requesting AI Question Generation for job {JobId} ('{Title}')...",
-                jobVacancyId, job.Title);
+                "[AssessmentService] Requesting AI Question Generation for job {JobId} ('{Title}', Difficulty: {Difficulty})...",
+                jobVacancyId, job.Title, difficulty ?? "Medium");
 
             var aiResponse = await _assessmentAgentClient.GenerateQuestionAsync(
                 new PythonGenerateQuestionRequest
                 {
                     JobVacancyId = jobVacancyId.ToString(),
                     FocusArea = focusArea,
+                    Difficulty = string.IsNullOrWhiteSpace(difficulty) ? "Medium" : difficulty,
                     JobContext = new PythonJobVacancyContext
                     {
                         JobTitle = job.Title,

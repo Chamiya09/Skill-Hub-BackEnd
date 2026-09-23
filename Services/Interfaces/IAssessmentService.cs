@@ -47,6 +47,7 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid jobVacancyId,
             Guid hrManagerId,
             string? focusArea = null,
+            string? difficulty = "Medium",
             CancellationToken cancellationToken = default);
 
         Task<JobVacancyContextDto?> GetJobContextForAiAgentAsync(

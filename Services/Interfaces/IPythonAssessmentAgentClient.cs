@@ -23,6 +23,9 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
         [JsonPropertyName("focus_area")]
         public string? FocusArea { get; set; }
 
+        [JsonPropertyName("difficulty")]
+        public string? Difficulty { get; set; } = "Medium";
+
         [JsonPropertyName("job_context")]
         public PythonJobVacancyContext? JobContext { get; set; }
     }

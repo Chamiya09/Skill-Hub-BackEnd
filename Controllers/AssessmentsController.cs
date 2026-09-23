@@ -179,6 +179,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     jobVacancyId,
                     hrManagerId,
                     dto?.FocusArea,
+                    dto?.Difficulty,
                     cancellationToken);
                 return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
             }

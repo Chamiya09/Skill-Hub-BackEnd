@@ -96,6 +96,7 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
     public sealed class GenerateAiAssessmentRequestDto
     {
         public string? FocusArea { get; set; }
+        public string? Difficulty { get; set; } = "Medium";
     }
 
     public sealed class JobVacancyContextDto
