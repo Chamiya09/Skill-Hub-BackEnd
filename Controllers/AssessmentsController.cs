@@ -172,13 +172,20 @@ namespace Skill_Hub_BackEnd.Controllers
             [FromBody] GenerateAiAssessmentRequestDto? dto,
             CancellationToken cancellationToken)
         {
-            var hrManagerId = GetCurrentUserId();
-            var result = await _assessmentService.GenerateAiAssessmentDraftAsync(
-                jobVacancyId,
-                hrManagerId,
-                dto?.FocusArea,
-                cancellationToken);
-            return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.GenerateAiAssessmentDraftAsync(
+                    jobVacancyId,
+                    hrManagerId,
+                    dto?.FocusArea,
+                    cancellationToken);
+                return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
         }
 
         /// <summary>
@@ -577,4 +584,3 @@ namespace Skill_Hub_BackEnd.Controllers
         #endregion
     }
 }
-

@@ -22,6 +22,24 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
 
         [JsonPropertyName("focus_area")]
         public string? FocusArea { get; set; }
+
+        [JsonPropertyName("job_context")]
+        public PythonJobVacancyContext? JobContext { get; set; }
+    }
+
+    public sealed class PythonJobVacancyContext
+    {
+        [JsonPropertyName("job_title")]
+        public string JobTitle { get; set; } = string.Empty;
+
+        [JsonPropertyName("experience_level")]
+        public string ExperienceLevel { get; set; } = string.Empty;
+
+        [JsonPropertyName("department")]
+        public string Department { get; set; } = string.Empty;
+
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = string.Empty;
     }
 
     public sealed class PythonGenerateQuestionResponse
@@ -42,4 +60,3 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
         public CodingQuestionItemDto Question { get; set; } = new();
     }
 }
-

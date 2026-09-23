@@ -276,7 +276,14 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 new PythonGenerateQuestionRequest
                 {
                     JobVacancyId = jobVacancyId.ToString(),
-                    FocusArea = focusArea
+                    FocusArea = focusArea,
+                    JobContext = new PythonJobVacancyContext
+                    {
+                        JobTitle = job.Title,
+                        ExperienceLevel = job.ExperienceLevel,
+                        Department = job.Department,
+                        Description = job.Description
+                    }
                 },
                 cancellationToken);
 
