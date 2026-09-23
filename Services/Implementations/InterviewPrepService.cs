@@ -79,6 +79,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
                 if (app != null)
                 {
+                    if (candidateId == Guid.Empty || candidateId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
+                    {
+                        candidateId = app.CandidateId;
+                    }
                     request.JobId ??= app.JobId;
                     resolvedStatus = app.Status;
                     resolvedAppliedDate = app.AppliedDate;
@@ -95,6 +99,41 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         resolvedCompany = app.Job.Company?.CompanyName;
                         resolvedLocation = app.Job.Location;
                         resolvedEmploymentType = app.Job.EmploymentType;
+                    }
+                }
+            }
+            else if (request.JobId.HasValue)
+            {
+                var matchingApp = await _dbContext.JobApplications
+                    .AsNoTracking()
+                    .Include(a => a.Job)
+                        .ThenInclude(j => j!.Company)
+                    .Where(a => a.JobId == request.JobId.Value && (candidateId == Guid.Empty || a.CandidateId == candidateId))
+                    .OrderByDescending(a => a.AppliedDate)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (matchingApp != null)
+                {
+                    request.ApplicationId = matchingApp.Id;
+                    if (candidateId == Guid.Empty || candidateId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
+                    {
+                        candidateId = matchingApp.CandidateId;
+                    }
+                    resolvedStatus = matchingApp.Status;
+                    resolvedAppliedDate = matchingApp.AppliedDate;
+                    if (string.IsNullOrWhiteSpace(resolvedTitle) && matchingApp.Job != null)
+                    {
+                        resolvedTitle = matchingApp.Job.Title;
+                    }
+                    if (string.IsNullOrWhiteSpace(resolvedDescription) && matchingApp.Job != null)
+                    {
+                        resolvedDescription = matchingApp.Job.Description;
+                    }
+                    if (matchingApp.Job != null)
+                    {
+                        resolvedCompany = matchingApp.Job.Company?.CompanyName;
+                        resolvedLocation = matchingApp.Job.Location;
+                        resolvedEmploymentType = matchingApp.Job.EmploymentType;
                     }
                 }
             }
@@ -128,6 +167,32 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 : resolvedTitle;
 
             var companyName = resolvedCompany ?? "Enterprise Partner";
+
+            // ── Check if an interview prep guide already exists in PostgreSQL ────────
+            if (!request.ForceRegenerate)
+            {
+                var existingGuide = await _dbContext.InterviewPrepGuides
+                    .AsNoTracking()
+                    .Include(g => g.JobApplication)
+                        .ThenInclude(a => a!.Job)
+                            .ThenInclude(j => j!.Company)
+                    .Include(g => g.Job)
+                        .ThenInclude(j => j!.Company)
+                    .Where(g =>
+                        (request.ApplicationId.HasValue && g.ApplicationId == request.ApplicationId.Value) ||
+                        (request.JobId.HasValue && g.JobId == request.JobId.Value && (g.CandidateId == candidateId || g.CandidateId == null)))
+                    .OrderByDescending(g => g.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (existingGuide != null)
+                {
+                    _logger.LogInformation(
+                        "Found existing saved InterviewPrepGuide {GuideId} for Candidate {CandidateId} (Job: '{JobTitle}'). Returning from database without AI regeneration.",
+                        existingGuide.Id, candidateId, existingGuide.JobTitle);
+
+                    return MapEntityToDto(existingGuide);
+                }
+            }
 
             // ── Call Python AI Agent Microservice (Groq / temperature=0.0) ──────────
             var pythonRequest = new PythonGenerateGuideRequest
@@ -323,11 +388,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         .ThenInclude(j => j!.Company)
                 .Include(g => g.Job)
                     .ThenInclude(j => j!.Company)
-                .Where(g => g.ApplicationId != null);
+                .AsQueryable();
 
             if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
             {
-                query = query.Where(g => g.CandidateId == candidateId);
+                query = query.Where(g => g.CandidateId == candidateId || (g.JobApplication != null && g.JobApplication.CandidateId == candidateId));
             }
 
             var guides = await query
@@ -339,13 +404,13 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             foreach (var entity in guides)
             {
-                if (entity.ApplicationId == null)
-                {
-                    continue;
-                }
-
                 var dto = MapEntityToDto(entity);
-                var key = $"{dto.CompanyName}-{dto.JobTitle}";
+                var key = !string.IsNullOrWhiteSpace(dto.ApplicationId?.ToString())
+                    ? dto.ApplicationId.ToString()!
+                    : (!string.IsNullOrWhiteSpace(dto.JobId?.ToString())
+                        ? dto.JobId.ToString()!
+                        : $"{dto.CompanyName}-{dto.JobTitle}");
+
                 if (seenKeys.Add(key))
                 {
                     results.Add(dto);
@@ -353,6 +418,35 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }
 
             return results;
+        }
+
+        public async Task<bool> DeleteGuideAsync(
+            Guid id,
+            Guid candidateId,
+            CancellationToken cancellationToken = default)
+        {
+            var guide = await _dbContext.InterviewPrepGuides
+                .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+            if (guide == null)
+            {
+                return false;
+            }
+
+            if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
+            {
+                if (guide.CandidateId.HasValue && guide.CandidateId != candidateId)
+                {
+                    _logger.LogWarning("Candidate {CandidateId} attempted to delete guide {GuideId} owned by {OwnerId}",
+                        candidateId, id, guide.CandidateId);
+                    throw new UnauthorizedAccessException("You are not authorized to delete this interview preparation guide.");
+                }
+            }
+
+            _dbContext.InterviewPrepGuides.Remove(guide);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Deleted InterviewPrepGuide {GuideId} for Candidate {CandidateId}", id, candidateId);
+            return true;
         }
 
         public async Task<InterviewPrepEligibilityDto> CheckEligibilityAsync(

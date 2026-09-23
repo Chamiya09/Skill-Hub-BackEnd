@@ -43,6 +43,7 @@ namespace Skill_Hub_BackEnd.DTOs.Jobs
     public class CandidateApplicationResponseDto
     {
         public Guid ApplicationId { get; set; }
+        public Guid Id => ApplicationId;
         public Guid JobId { get; set; }
         public string JobTitle { get; set; } = string.Empty;
         public string Department { get; set; } = string.Empty;

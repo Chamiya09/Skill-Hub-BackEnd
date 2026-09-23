@@ -49,6 +49,10 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             string? focusArea = null,
             CancellationToken cancellationToken = default);
 
+        Task<JobVacancyContextDto?> GetJobContextForAiAgentAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default);
+
         // Dispatching to Shortlisted Candidate (Incoming Contract from Student 2)
         Task<DispatchAssessmentResponseDto> DispatchAssessmentAsync(
             DispatchAssessmentRequestDto dto,

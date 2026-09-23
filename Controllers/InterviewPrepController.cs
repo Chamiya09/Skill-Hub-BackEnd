@@ -151,6 +151,29 @@ namespace Skill_Hub_BackEnd.Controllers
             return Ok(guides);
         }
 
+        /// <summary>
+        /// DELETE /api/interviewprep/{id}
+        /// Deletes a saved interview preparation guide from the database.
+        /// </summary>
+        [HttpDelete("{id:guid}")]
+        public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+            try
+            {
+                var deleted = await _interviewPrepService.DeleteGuideAsync(id, candidateId, cancellationToken);
+                if (!deleted)
+                {
+                    return NotFound(new { message = "Interview preparation guide not found." });
+                }
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+        }
+
 
         private Guid? GetCandidateId()
         {

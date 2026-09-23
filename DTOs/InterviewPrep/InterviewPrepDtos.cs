@@ -20,6 +20,7 @@ namespace Skill_Hub_BackEnd.DTOs.InterviewPrep
         public string? JobDescription { get; set; }
 
         public string? ExperienceLevel { get; set; } // e.g. Entry, Mid-Level, Senior, Lead
+        public bool ForceRegenerate { get; set; } = false;
     }
 
     /// <summary>

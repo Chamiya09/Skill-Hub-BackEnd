@@ -181,6 +181,26 @@ namespace Skill_Hub_BackEnd.Controllers
             return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
         }
 
+        /// <summary>
+        /// Scoped internal endpoint for AI Assessment Agent tool to fetch job vacancy context.
+        /// Returns strictly the 5 fields needed to generate coding challenges.
+        /// </summary>
+        [HttpGet("internal/job-context/{jobVacancyId:guid}")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(JobVacancyContextDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetJobContextForAiAgent(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            var result = await _assessmentService.GetJobContextForAiAgentAsync(jobVacancyId, cancellationToken);
+            if (result == null)
+            {
+                return NotFound(new { error = $"No job vacancy found with ID: '{jobVacancyId}'." });
+            }
+            return Ok(result);
+        }
+
         #endregion
 
         #region 2. HR Dispatch Assessment (Modal Action)

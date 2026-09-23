@@ -312,6 +312,24 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             return MapToResponseDto(assessment, 0);
         }
 
+        public async Task<JobVacancyContextDto?> GetJobContextForAiAgentAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _dbContext.JobVacancies
+                .AsNoTracking()
+                .Where(j => j.Id == jobVacancyId)
+                .Select(j => new JobVacancyContextDto
+                {
+                    JobId = j.Id,
+                    JobTitle = j.Title,
+                    ExperienceLevel = j.ExperienceLevel,
+                    Department = j.Department,
+                    Description = j.Description
+                })
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
         #endregion
 
         #region 2. Dispatch Assessment (Incoming from Student 2 / Shortlisted Modal)

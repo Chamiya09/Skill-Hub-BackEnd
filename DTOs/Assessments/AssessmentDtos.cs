@@ -97,5 +97,14 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
     {
         public string? FocusArea { get; set; }
     }
+
+    public sealed class JobVacancyContextDto
+    {
+        public Guid JobId { get; set; }
+        public string JobTitle { get; set; } = string.Empty;
+        public string ExperienceLevel { get; set; } = string.Empty;
+        public string Department { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
 }
 
