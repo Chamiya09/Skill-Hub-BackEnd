@@ -457,6 +457,22 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Retrieves all candidate submissions selected for technical interview (HR view).
+        /// Supports optional filtering by jobVacancyId.
+        /// </summary>
+        [HttpGet("interview-selections")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(IReadOnlyList<SubmissionDetailDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetInterviewSelections(
+            [FromQuery] Guid? jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            var companyId = GetCurrentCompanyId();
+            var result = await _assessmentService.GetInterviewSelectionsAsync(companyId, jobVacancyId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
         /// HR manually grades candidate code solutions, awards marks, and marks interview selection.
         /// </summary>
         [HttpPost("submissions/{submissionId:guid}/review")]
@@ -571,6 +587,16 @@ namespace Skill_Hub_BackEnd.Controllers
                 ?? User.FindFirstValue("userId");
 
             return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
+        }
+
+        private Guid? GetCurrentCompanyId()
+        {
+            var claim = User.FindFirst("companyId")?.Value
+                ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirstValue("sub")
+                ?? User.FindFirstValue("userId");
+
+            return Guid.TryParse(claim, out var id) ? id : null;
         }
 
         private Guid? GetCandidateId()

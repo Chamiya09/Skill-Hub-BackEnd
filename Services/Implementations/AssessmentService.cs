@@ -867,12 +867,79 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .Where(u => candidateIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
 
+            var job = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobVacancyId, cancellationToken);
+
             var result = new List<SubmissionDetailDto>();
             foreach (var s in submissions)
             {
                 candidates.TryGetValue(s.CandidateId, out var candidate);
                 var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
-                result.Add(MapToSubmissionDetailDto(s, candidate?.FullName, candidate?.Email, passingThreshold));
+                result.Add(MapToSubmissionDetailDto(s, candidate?.FullName, candidate?.Email, passingThreshold, job?.Title, job?.Department));
+            }
+
+            return result;
+        }
+
+        public async Task<IReadOnlyList<SubmissionDetailDto>> GetInterviewSelectionsAsync(
+            Guid? companyId,
+            Guid? jobVacancyId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var query = _dbContext.Submissions
+                .Include(s => s.Assessment)
+                .Where(s => s.IsSelectedForInterview);
+
+            if (jobVacancyId.HasValue && jobVacancyId.Value != Guid.Empty)
+            {
+                query = query.Where(s => s.JobVacancyId == jobVacancyId.Value);
+            }
+            else if (companyId.HasValue && companyId.Value != Guid.Empty)
+            {
+                var companyJobIds = await _dbContext.JobVacancies
+                    .Where(j => j.CompanyId == companyId.Value && j.Status != "Deleted")
+                    .Select(j => j.Id)
+                    .ToListAsync(cancellationToken);
+
+                if (companyJobIds.Count > 0)
+                {
+                    query = query.Where(s => companyJobIds.Contains(s.JobVacancyId));
+                }
+            }
+
+            var submissions = await query
+                .OrderByDescending(s => s.GradedAt ?? s.SubmittedAt ?? s.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            if (submissions.Count == 0)
+                return Array.Empty<SubmissionDetailDto>();
+
+            var candidateIds = submissions.Select(s => s.CandidateId).Distinct().ToList();
+            var candidates = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => candidateIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
+
+            var jobIds = submissions.Select(s => s.JobVacancyId).Distinct().ToList();
+            var jobs = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .Where(j => jobIds.Contains(j.Id))
+                .ToDictionaryAsync(j => j.Id, j => j, cancellationToken);
+
+            var result = new List<SubmissionDetailDto>();
+            foreach (var s in submissions)
+            {
+                candidates.TryGetValue(s.CandidateId, out var candidate);
+                jobs.TryGetValue(s.JobVacancyId, out var job);
+                var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
+                result.Add(MapToSubmissionDetailDto(
+                    s,
+                    candidate?.FullName,
+                    candidate?.Email,
+                    passingThreshold,
+                    job?.Title,
+                    job?.Department));
             }
 
             return result;
@@ -1235,7 +1302,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Submission s,
             string? candidateName,
             string? candidateEmail,
-            decimal threshold)
+            decimal threshold,
+            string? jobTitle = null,
+            string? department = null)
         {
             List<SubmittedAnswerItemDto> answers = new();
             if (!string.IsNullOrWhiteSpace(s.Answers))
@@ -1254,6 +1323,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CandidateEmail = candidateEmail,
                 ApplicationId = s.ApplicationId,
                 JobVacancyId = s.JobVacancyId,
+                JobTitle = jobTitle,
+                Department = department,
                 ExamScore = s.ExamScore,
                 CvScore = s.CvScore,
                 FinalWeightedScore = s.FinalWeightedScore,

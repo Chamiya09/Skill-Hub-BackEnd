@@ -111,6 +111,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid jobVacancyId,
             CancellationToken cancellationToken = default);
 
+        Task<IReadOnlyList<SubmissionDetailDto>> GetInterviewSelectionsAsync(
+            Guid? companyId,
+            Guid? jobVacancyId = null,
+            CancellationToken cancellationToken = default);
+
         Task<SubmissionDetailDto> ReviewSubmissionAsync(
             Guid submissionId,
             ManualReviewSubmissionDto dto,
