@@ -89,6 +89,11 @@ builder.Services.AddHttpClient<IHolidayService, GoogleCalendarHolidayService>(cl
 {
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+// ── AI Interview Slot Generator (Student 3 - Meeting Orchestration) ────────
+builder.Services.AddHttpClient<IInterviewSchedulerService, InterviewSchedulerService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
 // ── AI Interview Preparation Guide (Student 1) ───────────────────────────────

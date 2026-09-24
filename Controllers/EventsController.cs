@@ -14,11 +14,16 @@ namespace Skill_Hub_BackEnd.Controllers
     {
         private readonly IEventService _eventService;
         private readonly IHolidayService _holidayService;
+        private readonly IInterviewSchedulerService _schedulerService;
 
-        public EventsController(IEventService eventService, IHolidayService holidayService)
+        public EventsController(
+            IEventService eventService,
+            IHolidayService holidayService,
+            IInterviewSchedulerService schedulerService)
         {
             _eventService = eventService ?? throw new ArgumentNullException(nameof(eventService));
             _holidayService = holidayService ?? throw new ArgumentNullException(nameof(holidayService));
+            _schedulerService = schedulerService ?? throw new ArgumentNullException(nameof(schedulerService));
         }
 
         /// <summary>
@@ -159,6 +164,103 @@ namespace Skill_Hub_BackEnd.Controllers
             }
 
             return NoContent();
+        }
+
+        /// <summary>
+        /// Internal endpoint consumed by Python AI Scheduler Agent to fetch interview candidates for a vacancy.
+        /// </summary>
+        [HttpGet("internal/interview-candidates")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(InterviewCandidatesResponseDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetInterviewCandidates(
+            [FromQuery] Guid jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            if (jobVacancyId == Guid.Empty)
+                return BadRequest(new { message = "Valid jobVacancyId is required." });
+
+            var result = await _schedulerService.GetCandidatesForInterviewAsync(jobVacancyId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Internal endpoint consumed by Python AI Scheduler Agent to fetch existing calendar events and blocked slots.
+        /// </summary>
+        [HttpGet("internal/existing-events")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(BlockedSlotsResponseDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetExistingEvents(
+            [FromQuery] Guid? companyId,
+            [FromQuery] DateOnly? startDate,
+            [FromQuery] DateOnly? endDate,
+            CancellationToken cancellationToken)
+        {
+            var start = startDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var end = endDate ?? start.AddDays(30);
+
+            var result = await _schedulerService.GetBlockedSlotsAsync(companyId, start, end, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Internal endpoint consumed by Python AI Scheduler Agent to fetch company schedule configuration.
+        /// </summary>
+        [HttpGet("internal/schedule-config")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ScheduleConfigDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetScheduleConfig(
+            [FromQuery] Guid? companyId,
+            CancellationToken cancellationToken)
+        {
+            var result = await _schedulerService.GetScheduleConfigAsync(companyId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// HR generates an AI interview schedule draft proposal. Does not persist to database.
+        /// </summary>
+        [HttpPost("generate-interview-schedule")]
+        [ProducesResponseType(typeof(ScheduleProposalResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> GenerateInterviewSchedule(
+            [FromBody] GenerateScheduleRequestDto dto,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var hrManagerId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+
+            try
+            {
+                var proposal = await _schedulerService.GenerateScheduleProposalAsync(dto, hrManagerId, companyId, cancellationToken);
+                return Ok(proposal);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// HR confirms and saves approved interview schedule slots to database (Human-in-the-loop).
+        /// </summary>
+        [HttpPost("confirm-interview-schedule")]
+        [ProducesResponseType(typeof(ConfirmInterviewScheduleResultDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> ConfirmInterviewSchedule(
+            [FromBody] ConfirmInterviewScheduleDto dto,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var hrManagerId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+
+            var result = await _schedulerService.ConfirmInterviewScheduleAsync(dto, hrManagerId, companyId, cancellationToken);
+            return Ok(result);
         }
 
         private Guid GetCurrentUserId()
