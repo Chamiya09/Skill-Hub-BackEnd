@@ -147,7 +147,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var assessments = await _dbContext.Assessments
-                .Where(a => a.JobVacancyId == jobVacancyId && a.Status == "Published")
+                .Where(a => a.JobVacancyId == jobVacancyId && a.Status != "Archived")
                 .Include(a => a.Submissions)
                 .OrderByDescending(a => a.CreatedAt)
                 .ToListAsync(cancellationToken);
