@@ -180,6 +180,8 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public string? CandidateEmail { get; set; }
         public Guid ApplicationId { get; set; }
         public Guid JobVacancyId { get; set; }
+        public string? JobTitle { get; set; }
+        public string? Department { get; set; }
         public decimal ExamScore { get; set; }
         public decimal CvScore { get; set; }
         public decimal FinalWeightedScore { get; set; }

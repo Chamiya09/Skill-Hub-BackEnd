@@ -160,6 +160,55 @@ namespace Skill_Hub_BackEnd.Controllers
             }
         }
 
+        /// <summary>
+        /// Triggers the single AI Assessment Agent to generate a calibrated draft challenge for a job vacancy.
+        /// Stored in Draft status with candidate quarantine until HR approves/publishes.
+        /// </summary>
+        [HttpPost("job/{jobVacancyId:guid}/generate-ai")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(AssessmentResponseDto), StatusCodes.Status201Created)]
+        public async Task<IActionResult> GenerateAiAssessment(
+            Guid jobVacancyId,
+            [FromBody] GenerateAiAssessmentRequestDto? dto,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.GenerateAiAssessmentDraftAsync(
+                    jobVacancyId,
+                    hrManagerId,
+                    dto?.FocusArea,
+                    dto?.Difficulty,
+                    cancellationToken);
+                return CreatedAtAction(nameof(GetAssessmentById), new { id = result.Id }, result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Scoped internal endpoint for AI Assessment Agent tool to fetch job vacancy context.
+        /// Returns strictly the 5 fields needed to generate coding challenges.
+        /// </summary>
+        [HttpGet("internal/job-context/{jobVacancyId:guid}")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(JobVacancyContextDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetJobContextForAiAgent(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            var result = await _assessmentService.GetJobContextForAiAgentAsync(jobVacancyId, cancellationToken);
+            if (result == null)
+            {
+                return NotFound(new { error = $"No job vacancy found with ID: '{jobVacancyId}'." });
+            }
+            return Ok(result);
+        }
+
         #endregion
 
         #region 2. HR Dispatch Assessment (Modal Action)
@@ -408,6 +457,22 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Retrieves all candidate submissions selected for technical interview (HR view).
+        /// Supports optional filtering by jobVacancyId.
+        /// </summary>
+        [HttpGet("interview-selections")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(IReadOnlyList<SubmissionDetailDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetInterviewSelections(
+            [FromQuery] Guid? jobVacancyId,
+            CancellationToken cancellationToken)
+        {
+            var companyId = GetCurrentCompanyId();
+            var result = await _assessmentService.GetInterviewSelectionsAsync(companyId, jobVacancyId, cancellationToken);
+            return Ok(result);
+        }
+
+        /// <summary>
         /// HR manually grades candidate code solutions, awards marks, and marks interview selection.
         /// </summary>
         [HttpPost("submissions/{submissionId:guid}/review")]
@@ -524,6 +589,16 @@ namespace Skill_Hub_BackEnd.Controllers
             return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
         }
 
+        private Guid? GetCurrentCompanyId()
+        {
+            var claim = User.FindFirst("companyId")?.Value
+                ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirstValue("sub")
+                ?? User.FindFirstValue("userId");
+
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
         private Guid? GetCandidateId()
         {
             var claim = User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -536,4 +611,3 @@ namespace Skill_Hub_BackEnd.Controllers
         #endregion
     }
 }
-

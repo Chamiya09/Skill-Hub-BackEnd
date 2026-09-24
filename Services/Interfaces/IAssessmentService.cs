@@ -43,6 +43,17 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid hrManagerId,
             CancellationToken cancellationToken = default);
 
+        Task<AssessmentResponseDto> GenerateAiAssessmentDraftAsync(
+            Guid jobVacancyId,
+            Guid hrManagerId,
+            string? focusArea = null,
+            string? difficulty = "Medium",
+            CancellationToken cancellationToken = default);
+
+        Task<JobVacancyContextDto?> GetJobContextForAiAgentAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default);
+
         // Dispatching to Shortlisted Candidate (Incoming Contract from Student 2)
         Task<DispatchAssessmentResponseDto> DispatchAssessmentAsync(
             DispatchAssessmentRequestDto dto,
@@ -98,6 +109,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
 
         Task<IReadOnlyList<SubmissionDetailDto>> GetSubmissionsByJobAsync(
             Guid jobVacancyId,
+            CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<SubmissionDetailDto>> GetInterviewSelectionsAsync(
+            Guid? companyId,
+            Guid? jobVacancyId = null,
             CancellationToken cancellationToken = default);
 
         Task<SubmissionDetailDto> ReviewSubmissionAsync(

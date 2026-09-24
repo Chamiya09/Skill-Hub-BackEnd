@@ -92,5 +92,20 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
 
         public DateTime? ExpiresAt { get; set; }
     }
+
+    public sealed class GenerateAiAssessmentRequestDto
+    {
+        public string? FocusArea { get; set; }
+        public string? Difficulty { get; set; } = "Medium";
+    }
+
+    public sealed class JobVacancyContextDto
+    {
+        public Guid JobId { get; set; }
+        public string JobTitle { get; set; } = string.Empty;
+        public string ExperienceLevel { get; set; } = string.Empty;
+        public string Department { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
 }
 

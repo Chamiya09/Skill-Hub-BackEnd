@@ -21,15 +21,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         private readonly ApplicationDbContext _dbContext;
         private readonly ILogger<AssessmentService> _logger;
         private readonly IPistonExecutionService _pistonService;
+        private readonly IPythonAssessmentAgentClient _assessmentAgentClient;
 
         public AssessmentService(
             ApplicationDbContext dbContext,
             ILogger<AssessmentService> logger,
-            IPistonExecutionService pistonService)
+            IPistonExecutionService pistonService,
+            IPythonAssessmentAgentClient assessmentAgentClient)
         {
             _dbContext = dbContext;
             _logger = logger;
             _pistonService = pistonService;
+            _assessmentAgentClient = assessmentAgentClient;
         }
 
         #region 1. Assessment Creation & Management
@@ -250,6 +253,90 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             _dbContext.Assessments.Remove(assessment);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return true;
+        }
+
+        public async Task<AssessmentResponseDto> GenerateAiAssessmentDraftAsync(
+            Guid jobVacancyId,
+            Guid hrManagerId,
+            string? focusArea = null,
+            string? difficulty = "Medium",
+            CancellationToken cancellationToken = default)
+        {
+            var job = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobVacancyId, cancellationToken);
+
+            if (job == null)
+                throw new KeyNotFoundException($"Job vacancy with ID '{jobVacancyId}' was not found.");
+
+            _logger.LogInformation(
+                "[AssessmentService] Requesting AI Question Generation for job {JobId} ('{Title}', Difficulty: {Difficulty})...",
+                jobVacancyId, job.Title, difficulty ?? "Medium");
+
+            var aiResponse = await _assessmentAgentClient.GenerateQuestionAsync(
+                new PythonGenerateQuestionRequest
+                {
+                    JobVacancyId = jobVacancyId.ToString(),
+                    FocusArea = focusArea,
+                    Difficulty = string.IsNullOrWhiteSpace(difficulty) ? "Medium" : difficulty,
+                    JobContext = new PythonJobVacancyContext
+                    {
+                        JobTitle = job.Title,
+                        ExperienceLevel = job.ExperienceLevel,
+                        Department = job.Department,
+                        Description = job.Description
+                    }
+                },
+                cancellationToken);
+
+            var question = aiResponse.Question;
+            if (string.IsNullOrWhiteSpace(question.Id))
+                question.Id = $"q_{Guid.NewGuid():N}";
+
+            var questionsList = new List<CodingQuestionItemDto> { question };
+            var questionsJson = JsonSerializer.Serialize(questionsList, JsonOpts);
+
+            var assessment = new Assessment
+            {
+                Id = Guid.NewGuid(),
+                JobVacancyId = jobVacancyId,
+                Title = $"{job.Title} - AI Technical Challenge",
+                GeneratedQuestions = questionsJson,
+                FinalQuestions = questionsJson,
+                PassingThreshold = 60.00m,
+                TimeLimitMinutes = 60,
+                CreatedBy = hrManagerId,
+                Status = "Draft",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.Assessments.Add(assessment);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[AssessmentService] Successfully generated AI draft assessment {AssessmentId} ('{Title}') with question '{QuestionTitle}' ({Language})",
+                assessment.Id, assessment.Title, question.Title, question.Language);
+
+            return MapToResponseDto(assessment, 0);
+        }
+
+        public async Task<JobVacancyContextDto?> GetJobContextForAiAgentAsync(
+            Guid jobVacancyId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _dbContext.JobVacancies
+                .AsNoTracking()
+                .Where(j => j.Id == jobVacancyId)
+                .Select(j => new JobVacancyContextDto
+                {
+                    JobId = j.Id,
+                    JobTitle = j.Title,
+                    ExperienceLevel = j.ExperienceLevel,
+                    Department = j.Department,
+                    Description = j.Description
+                })
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         #endregion
@@ -689,97 +776,34 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var qMap = questions.ToDictionary(q => q.Id, q => q);
 
             var submittedAnswers = new List<SubmittedAnswerItemDto>();
-            decimal totalEarnedPoints = 0;
-            decimal totalMaxPoints = 0;
-            bool anyAutomatedTested = false;
 
             foreach (var ans in answersDto.Answers)
             {
                 qMap.TryGetValue(ans.QuestionId, out var q);
-                var questionMaxPoints = q?.Points ?? 10;
-                totalMaxPoints += questionMaxPoints;
-
-                var allTestCases = new List<TestCaseDto>();
-                if (q?.SampleTestCases != null) allTestCases.AddRange(q.SampleTestCases);
-                if (q?.HiddenTestCases != null) allTestCases.AddRange(q.HiddenTestCases);
-
-                var testCaseEvaluations = new List<TestCaseEvaluationItemDto>();
-                int passedCount = 0;
                 var lang = !string.IsNullOrWhiteSpace(ans.Language) ? ans.Language : (q?.Language ?? "python");
-
-                if (allTestCases.Count > 0 && !string.IsNullOrWhiteSpace(ans.SubmittedCode))
-                {
-                    anyAutomatedTested = true;
-                    int tcIdx = 1;
-                    foreach (var tc in allTestCases)
-                    {
-                        var execResult = await _pistonService.ExecuteCodeAsync(
-                            ans.SubmittedCode,
-                            lang,
-                            tc.Input,
-                            cancellationToken);
-
-                        var normalizedActual = execResult.Stdout.Trim().Replace("\r\n", "\n");
-                        var normalizedExpected = tc.ExpectedOutput.Trim().Replace("\r\n", "\n");
-                        bool isPassed = !execResult.IsError && string.Equals(normalizedActual, normalizedExpected, StringComparison.Ordinal);
-
-                        if (isPassed) passedCount++;
-
-                        testCaseEvaluations.Add(new TestCaseEvaluationItemDto
-                        {
-                            Index = tcIdx++,
-                            Input = tc.IsHidden ? "[Hidden Test Case]" : tc.Input,
-                            ExpectedOutput = tc.IsHidden ? "[Hidden Test Case]" : tc.ExpectedOutput,
-                            ActualOutput = tc.IsHidden && !isPassed ? "[Hidden Test Case - Output Mismatch]" : execResult.Stdout,
-                            Passed = isPassed,
-                            IsHidden = tc.IsHidden,
-                            ErrorMessage = execResult.IsError ? (execResult.CompileOutput ?? execResult.Stderr ?? execResult.ErrorMessage) : null
-                        });
-                    }
-                }
-
-                decimal questionScore = allTestCases.Count > 0
-                    ? Math.Round(((decimal)passedCount / allTestCases.Count) * questionMaxPoints, 2)
-                    : 0;
-
-                totalEarnedPoints += questionScore;
 
                 submittedAnswers.Add(new SubmittedAnswerItemDto
                 {
                     QuestionId = ans.QuestionId,
                     SubmittedCode = ans.SubmittedCode ?? string.Empty,
                     Language = lang,
-                    TestCasesPassed = passedCount,
-                    TotalTestCases = allTestCases.Count,
-                    Score = questionScore,
-                    TestCaseResults = testCaseEvaluations
+                    TestCasesPassed = 0,
+                    TotalTestCases = 0,
+                    Score = 0.00m,
+                    TestCaseResults = new List<TestCaseEvaluationItemDto>()
                 });
             }
 
-            decimal finalExamScore = totalMaxPoints > 0
-                ? Math.Round((totalEarnedPoints / totalMaxPoints) * 100m, 2)
-                : 0.00m;
-
-            finalExamScore = Math.Clamp(finalExamScore, 0.00m, 100.00m);
             var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
 
             submission.Answers = JsonSerializer.Serialize(submittedAnswers, JsonOpts);
             submission.SubmittedAt = DateTime.UtcNow;
-            submission.ExamScore = finalExamScore;
-            submission.FinalWeightedScore = finalExamScore;
-
-            if (anyAutomatedTested)
-            {
-                submission.Status = finalExamScore >= passingThreshold ? "Passed" : "Graded";
-                submission.GradedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                submission.Status = "Under_Review";
-                submission.GradedAt = null;
-            }
-
+            submission.ExamScore = 0.00m;
+            submission.FinalWeightedScore = 0.00m;
+            submission.Status = "Under_Review";
+            submission.GradedAt = null;
             submission.UpdatedAt = DateTime.UtcNow;
+
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
@@ -810,10 +834,82 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             CancellationToken cancellationToken = default)
         {
             var submissions = await _dbContext.Submissions
-                .AsNoTracking()
                 .Include(s => s.Assessment)
                 .Where(s => s.JobVacancyId == jobVacancyId && s.Status != "Assigned")
                 .OrderByDescending(s => s.SubmittedAt ?? s.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            if (submissions.Count == 0)
+                return Array.Empty<SubmissionDetailDto>();
+
+            // Ensure any submitted exams that have not yet been manually reviewed by HR stay in Under_Review status
+            bool hasChanges = false;
+            foreach (var s in submissions)
+            {
+                if (s.SubmittedAt.HasValue && s.ReviewedBy == null && (s.Status == "Graded" || s.Status == "Passed"))
+                {
+                    s.Status = "Under_Review";
+                    s.ExamScore = 0.00m;
+                    s.FinalWeightedScore = 0.00m;
+                    s.GradedAt = null;
+                    s.UpdatedAt = DateTime.UtcNow;
+                    hasChanges = true;
+                }
+            }
+            if (hasChanges)
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            var candidateIds = submissions.Select(s => s.CandidateId).Distinct().ToList();
+            var candidates = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => candidateIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
+
+            var job = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobVacancyId, cancellationToken);
+
+            var result = new List<SubmissionDetailDto>();
+            foreach (var s in submissions)
+            {
+                candidates.TryGetValue(s.CandidateId, out var candidate);
+                var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
+                result.Add(MapToSubmissionDetailDto(s, candidate?.FullName, candidate?.Email, passingThreshold, job?.Title, job?.Department));
+            }
+
+            return result;
+        }
+
+        public async Task<IReadOnlyList<SubmissionDetailDto>> GetInterviewSelectionsAsync(
+            Guid? companyId,
+            Guid? jobVacancyId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var query = _dbContext.Submissions
+                .Include(s => s.Assessment)
+                .Where(s => s.IsSelectedForInterview);
+
+            if (jobVacancyId.HasValue && jobVacancyId.Value != Guid.Empty)
+            {
+                query = query.Where(s => s.JobVacancyId == jobVacancyId.Value);
+            }
+            else if (companyId.HasValue && companyId.Value != Guid.Empty)
+            {
+                var companyJobIds = await _dbContext.JobVacancies
+                    .Where(j => j.CompanyId == companyId.Value && j.Status != "Deleted")
+                    .Select(j => j.Id)
+                    .ToListAsync(cancellationToken);
+
+                if (companyJobIds.Count > 0)
+                {
+                    query = query.Where(s => companyJobIds.Contains(s.JobVacancyId));
+                }
+            }
+
+            var submissions = await query
+                .OrderByDescending(s => s.GradedAt ?? s.SubmittedAt ?? s.CreatedAt)
                 .ToListAsync(cancellationToken);
 
             if (submissions.Count == 0)
@@ -825,12 +921,25 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .Where(u => candidateIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
 
+            var jobIds = submissions.Select(s => s.JobVacancyId).Distinct().ToList();
+            var jobs = await _dbContext.JobVacancies
+                .AsNoTracking()
+                .Where(j => jobIds.Contains(j.Id))
+                .ToDictionaryAsync(j => j.Id, j => j, cancellationToken);
+
             var result = new List<SubmissionDetailDto>();
             foreach (var s in submissions)
             {
                 candidates.TryGetValue(s.CandidateId, out var candidate);
+                jobs.TryGetValue(s.JobVacancyId, out var job);
                 var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
-                result.Add(MapToSubmissionDetailDto(s, candidate?.FullName, candidate?.Email, passingThreshold));
+                result.Add(MapToSubmissionDetailDto(
+                    s,
+                    candidate?.FullName,
+                    candidate?.Email,
+                    passingThreshold,
+                    job?.Title,
+                    job?.Department));
             }
 
             return result;
@@ -1193,7 +1302,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             Submission s,
             string? candidateName,
             string? candidateEmail,
-            decimal threshold)
+            decimal threshold,
+            string? jobTitle = null,
+            string? department = null)
         {
             List<SubmittedAnswerItemDto> answers = new();
             if (!string.IsNullOrWhiteSpace(s.Answers))
@@ -1212,6 +1323,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CandidateEmail = candidateEmail,
                 ApplicationId = s.ApplicationId,
                 JobVacancyId = s.JobVacancyId,
+                JobTitle = jobTitle,
+                Department = department,
                 ExamScore = s.ExamScore,
                 CvScore = s.CvScore,
                 FinalWeightedScore = s.FinalWeightedScore,

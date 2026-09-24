@@ -39,6 +39,14 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid candidateId,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Deletes an interview preparation guide by ID.
+        /// </summary>
+        Task<bool> DeleteGuideAsync(
+            Guid id,
+            Guid candidateId,
+            CancellationToken cancellationToken = default);
+
 
         /// <summary>
         /// Checks whether the candidate is eligible for interview preparation.
