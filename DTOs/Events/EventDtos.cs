@@ -30,5 +30,15 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string? CreatorName { get; set; }
         public DateTime CreatedAt { get; set; }
     }
+
+    public class NationalHolidayDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string Date { get; set; } = string.Empty; // "YYYY-MM-DD"
+        public string Country { get; set; } = "Sri Lanka";
+        public string CountryCode { get; set; } = "LK";
+    }
 }
 

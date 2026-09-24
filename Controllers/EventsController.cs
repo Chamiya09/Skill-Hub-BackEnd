@@ -13,10 +13,30 @@ namespace Skill_Hub_BackEnd.Controllers
     public class EventsController : ControllerBase
     {
         private readonly IEventService _eventService;
+        private readonly IHolidayService _holidayService;
 
-        public EventsController(IEventService eventService)
+        public EventsController(IEventService eventService, IHolidayService holidayService)
         {
             _eventService = eventService ?? throw new ArgumentNullException(nameof(eventService));
+            _holidayService = holidayService ?? throw new ArgumentNullException(nameof(holidayService));
+        }
+
+        /// <summary>
+        /// Retrieves national and public holidays for the Monthly Planner calendar (Google Calendar API synced with server-side caching).
+        /// Endpoint: GET /api/Events/holidays?year=2026&month=9&country=LK
+        /// </summary>
+        [HttpGet("holidays")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(IReadOnlyList<NationalHolidayDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetHolidays(
+            [FromQuery] int? year,
+            [FromQuery] int? month,
+            [FromQuery] string? country,
+            CancellationToken cancellationToken)
+        {
+            var targetYear = year.HasValue && year.Value > 2000 ? year.Value : DateTime.UtcNow.Year;
+            var holidays = await _holidayService.GetHolidaysAsync(targetYear, month, country ?? "LK", cancellationToken);
+            return Ok(holidays);
         }
 
         /// <summary>

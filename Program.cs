@@ -84,6 +84,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IHolidayService, GoogleCalendarHolidayService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
 // ── AI Interview Preparation Guide (Student 1) ───────────────────────────────
