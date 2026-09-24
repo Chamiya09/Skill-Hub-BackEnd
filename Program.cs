@@ -82,10 +82,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
-
-
-builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+builder.Services.AddScoped<IEventService, EventService>();
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
 // ── AI Interview Preparation Guide (Student 1) ───────────────────────────────
@@ -126,8 +124,6 @@ builder.Services.AddHttpClient<IPythonAssessmentAgentClient, PythonAssessmentAge
     client.DefaultRequestHeaders.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
-
-
 
 // ==========================================
 // 3. CONTROLLERS & JSON SERIALIZATION
@@ -647,7 +643,25 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_ApplicationId""
                 ON public.""InterviewPrepGuides"" (""ApplicationId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_JobId""
-                ON public.""InterviewPrepGuides"" (""JobId"");"
+                ON public.""InterviewPrepGuides"" (""JobId"");",
+
+            // 11. Events Table (Monthly Planner & Interview Scheduling)
+            @"CREATE TABLE IF NOT EXISTS public.""Events"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""Title"" character varying(255) NOT NULL,
+                ""Description"" text,
+                ""EventDate"" date NOT NULL,
+                ""EventTime"" character varying(50) NOT NULL,
+                ""CreatedBy"" uuid NOT NULL,
+                ""CompanyId"" uuid REFERENCES public.""Companies""(""Id"") ON DELETE CASCADE,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""Events_CreatedBy_fkey"";",
+            @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""FK_Events_Users_CreatedBy"";",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_EventDate"" ON public.""Events"" (""EventDate"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CreatedBy"" ON public.""Events"" (""CreatedBy"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CompanyId"" ON public.""Events"" (""CompanyId"");"
         };
 
         foreach (var ddl in ddlStatements)

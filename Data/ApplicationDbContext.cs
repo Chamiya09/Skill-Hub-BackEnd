@@ -24,6 +24,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<Submission> Submissions => Set<Submission>();
         public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
         public DbSet<InterviewPrepGuide> InterviewPrepGuides => Set<InterviewPrepGuide>();
+        public DbSet<Event> Events => Set<Event>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -258,6 +259,25 @@ namespace Skill_Hub_BackEnd.Data
                       .HasForeignKey(g => g.JobId)
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // Event Entity Configurations
+            modelBuilder.Entity<Event>(entity =>
+            {
+                entity.ToTable("Events", "public");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).HasMaxLength(255).IsRequired();
+                entity.Property(e => e.EventTime).HasMaxLength(50).IsRequired();
+
+                entity.HasIndex(e => e.EventDate);
+                entity.HasIndex(e => e.CreatedBy);
+                entity.HasIndex(e => e.CompanyId);
+
+                entity.HasOne(e => e.Company)
+                      .WithMany()
+                      .HasForeignKey(e => e.CompanyId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

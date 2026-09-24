@@ -41,6 +41,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 return Unauthorized(new { message = "Invalid or missing company identifier in token." });
             }
 
+            _logger.LogInformation("Retrieving dashboard stats for company {CompanyId}", companyId);
+
             var company = await _dbContext.Companies.FindAsync(companyId);
             var companyName = company?.CompanyName ?? string.Empty;
 
