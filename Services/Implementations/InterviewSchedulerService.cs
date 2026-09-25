@@ -276,6 +276,14 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var createdIds = new List<Guid>();
 
+            JobVacancy? vacancy = null;
+            if (dto.JobVacancyId != Guid.Empty)
+            {
+                vacancy = await _dbContext.JobVacancies
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(j => j.Id == dto.JobVacancyId, cancellationToken);
+            }
+
             foreach (var slot in dto.Slots)
             {
                 if (!DateOnly.TryParse(slot.Date, out var eventDate))
@@ -298,6 +306,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     EventTime = timeRange,
                     CreatedBy = hrManagerId,
                     CompanyId = companyId,
+                    JobVacancyId = dto.JobVacancyId != Guid.Empty ? dto.JobVacancyId : null,
+                    Department = vacancy?.Department,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };

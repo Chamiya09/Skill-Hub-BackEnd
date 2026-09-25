@@ -669,9 +669,15 @@ using (var scope = app.Services.CreateScope())
             );",
             @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""Events_CreatedBy_fkey"";",
             @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""FK_Events_Users_CreatedBy"";",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""JobVacancyId"" uuid REFERENCES public.""JobVacancies""(""Id"") ON DELETE SET NULL;",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""Department"" character varying(100);",
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_EventDate"" ON public.""Events"" (""EventDate"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_CreatedBy"" ON public.""Events"" (""CreatedBy"");",
-            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CompanyId"" ON public.""Events"" (""CompanyId"");"
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CompanyId"" ON public.""Events"" (""CompanyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_JobVacancyId"" ON public.""Events"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_Department"" ON public.""Events"" (""Department"");",
+            @"UPDATE public.""Events"" e SET ""Department"" = j.""Department"" FROM public.""JobVacancies"" j WHERE e.""JobVacancyId"" = j.""Id"" AND e.""Department"" IS NULL;",
+            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;"
         };
 
         foreach (var ddl in ddlStatements)

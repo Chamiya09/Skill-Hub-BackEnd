@@ -17,6 +17,11 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         [Required(ErrorMessage = "Event time is required.")]
         [MaxLength(50, ErrorMessage = "Time cannot exceed 50 characters.")]
         public string EventTime { get; set; } = string.Empty;
+
+        public Guid? JobVacancyId { get; set; }
+
+        [MaxLength(100, ErrorMessage = "Department cannot exceed 100 characters.")]
+        public string? Department { get; set; }
     }
 
     public class EventResponseDto
@@ -28,6 +33,9 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string EventTime { get; set; } = string.Empty;
         public Guid CreatedBy { get; set; }
         public string? CreatorName { get; set; }
+        public Guid? JobVacancyId { get; set; }
+        public string? JobVacancyTitle { get; set; }
+        public string? Department { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 

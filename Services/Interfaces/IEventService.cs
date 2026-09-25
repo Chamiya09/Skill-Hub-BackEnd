@@ -17,6 +17,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             int? month = null,
             DateOnly? startDate = null,
             DateOnly? endDate = null,
+            string? department = null,
+            CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<string>> GetActiveDepartmentsAsync(
+            Guid? companyId,
             CancellationToken cancellationToken = default);
 
         Task<EventResponseDto?> GetEventByIdAsync(

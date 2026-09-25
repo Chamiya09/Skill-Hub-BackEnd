@@ -25,6 +25,20 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             ArgumentNullException.ThrowIfNull(dto);
 
+            string? dept = string.IsNullOrWhiteSpace(dto.Department) ? null : dto.Department.Trim();
+            Guid? vacancyId = dto.JobVacancyId.HasValue && dto.JobVacancyId.Value != Guid.Empty ? dto.JobVacancyId : null;
+
+            if (vacancyId.HasValue && string.IsNullOrWhiteSpace(dept))
+            {
+                var vacancy = await _dbContext.JobVacancies
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(j => j.Id == vacancyId.Value, cancellationToken);
+                if (vacancy != null && !string.IsNullOrWhiteSpace(vacancy.Department))
+                {
+                    dept = vacancy.Department.Trim();
+                }
+            }
+
             var newEvent = new Event
             {
                 Id = Guid.NewGuid(),
@@ -34,6 +48,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 EventTime = dto.EventTime.Trim(),
                 CreatedBy = hrManagerId,
                 CompanyId = companyId,
+                JobVacancyId = vacancyId,
+                Department = dept,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -42,8 +58,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
-                "[EventService] HR user {HrId} created event {EventId} ('{Title}') on {Date} at {Time}",
-                hrManagerId, newEvent.Id, newEvent.Title, newEvent.EventDate, newEvent.EventTime);
+                "[EventService] HR user {HrId} created event {EventId} ('{Title}', Dept: '{Dept}') on {Date} at {Time}",
+                hrManagerId, newEvent.Id, newEvent.Title, newEvent.Department, newEvent.EventDate, newEvent.EventTime);
 
             // Fetch creator's display name if available (from Users or Companies)
             string? creatorName = null;
@@ -75,10 +91,12 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             int? month = null,
             DateOnly? startDate = null,
             DateOnly? endDate = null,
+            string? department = null,
             CancellationToken cancellationToken = default)
         {
             var query = _dbContext.Events
                 .AsNoTracking()
+                .Include(e => e.JobVacancy)
                 .AsQueryable();
 
             // Scoping: by Company if present, or by HR Manager
@@ -89,6 +107,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             else
             {
                 query = query.Where(e => e.CreatedBy == hrManagerId);
+            }
+
+            // Department filtering: checks direct event department OR linked JobVacancy department across all vacancies
+            if (!string.IsNullOrWhiteSpace(department))
+            {
+                var cleanDept = department.Trim();
+                query = query.Where(e =>
+                    (e.Department != null && EF.Functions.ILike(e.Department, cleanDept)) ||
+                    (e.JobVacancy != null && EF.Functions.ILike(e.JobVacancy.Department, cleanDept)));
             }
 
             // Date filtering
@@ -136,6 +163,32 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             }).ToList();
         }
 
+        public async Task<IReadOnlyList<string>> GetActiveDepartmentsAsync(
+            Guid? companyId,
+            CancellationToken cancellationToken = default)
+        {
+            var query = _dbContext.JobVacancies
+                .AsNoTracking()
+                .Where(j => j.Status.ToLower() == "active" && !string.IsNullOrWhiteSpace(j.Department));
+
+            if (companyId.HasValue && companyId.Value != Guid.Empty)
+            {
+                var companyHasActive = await query.AnyAsync(j => j.CompanyId == companyId.Value, cancellationToken);
+                if (companyHasActive)
+                {
+                    query = query.Where(j => j.CompanyId == companyId.Value);
+                }
+            }
+
+            var departments = await query
+                .Select(j => j.Department.Trim())
+                .Distinct()
+                .OrderBy(d => d)
+                .ToListAsync(cancellationToken);
+
+            return departments;
+        }
+
         public async Task<EventResponseDto?> GetEventByIdAsync(
             Guid id,
             Guid hrManagerId,
@@ -144,6 +197,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             var e = await _dbContext.Events
                 .AsNoTracking()
+                .Include(ev => ev.JobVacancy)
                 .FirstOrDefaultAsync(ev => ev.Id == id, cancellationToken);
 
             if (e == null) return null;
@@ -175,7 +229,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         {
             ArgumentNullException.ThrowIfNull(dto);
 
-            var ev = await _dbContext.Events.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+            var ev = await _dbContext.Events
+                .Include(e => e.JobVacancy)
+                .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
             if (ev == null) return null;
 
             // Security check: ensure authorized company or creator
@@ -188,6 +244,22 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             ev.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
             ev.EventDate = dto.EventDate;
             ev.EventTime = dto.EventTime.Trim();
+            if (dto.JobVacancyId.HasValue)
+            {
+                ev.JobVacancyId = dto.JobVacancyId.Value != Guid.Empty ? dto.JobVacancyId : null;
+            }
+            if (!string.IsNullOrWhiteSpace(dto.Department))
+            {
+                ev.Department = dto.Department.Trim();
+            }
+            else if (ev.JobVacancyId.HasValue && string.IsNullOrWhiteSpace(ev.Department))
+            {
+                var vacancy = await _dbContext.JobVacancies.AsNoTracking().FirstOrDefaultAsync(j => j.Id == ev.JobVacancyId.Value, cancellationToken);
+                if (vacancy != null && !string.IsNullOrWhiteSpace(vacancy.Department))
+                {
+                    ev.Department = vacancy.Department.Trim();
+                }
+            }
             ev.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -244,6 +316,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 EventTime = e.EventTime,
                 CreatedBy = e.CreatedBy,
                 CreatorName = string.IsNullOrWhiteSpace(creatorName) ? null : creatorName,
+                JobVacancyId = e.JobVacancyId,
+                JobVacancyTitle = e.JobVacancy?.Title,
+                Department = e.Department ?? e.JobVacancy?.Department,
                 CreatedAt = e.CreatedAt
             };
         }

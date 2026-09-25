@@ -268,16 +268,25 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Title).HasMaxLength(255).IsRequired();
                 entity.Property(e => e.EventTime).HasMaxLength(50).IsRequired();
+                entity.Property(e => e.Department).HasMaxLength(100);
 
                 entity.HasIndex(e => e.EventDate);
                 entity.HasIndex(e => e.CreatedBy);
                 entity.HasIndex(e => e.CompanyId);
+                entity.HasIndex(e => e.JobVacancyId);
+                entity.HasIndex(e => e.Department);
 
                 entity.HasOne(e => e.Company)
                       .WithMany()
                       .HasForeignKey(e => e.CompanyId)
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.JobVacancy)
+                      .WithMany()
+                      .HasForeignKey(e => e.JobVacancyId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

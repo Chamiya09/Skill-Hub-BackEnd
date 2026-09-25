@@ -67,7 +67,7 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Retrieve events for the Monthly Planner view, optionally filtered by month/year or date range.
+        /// Retrieve events for the Monthly Planner view, optionally filtered by department, month/year, or date range.
         /// </summary>
         [HttpGet]
         [ProducesResponseType(typeof(IReadOnlyList<EventResponseDto>), StatusCodes.Status200OK)]
@@ -76,6 +76,7 @@ namespace Skill_Hub_BackEnd.Controllers
             [FromQuery] int? month,
             [FromQuery] DateOnly? startDate,
             [FromQuery] DateOnly? endDate,
+            [FromQuery] string? department,
             CancellationToken cancellationToken)
         {
             var hrManagerId = GetCurrentUserId();
@@ -88,9 +89,23 @@ namespace Skill_Hub_BackEnd.Controllers
                 month,
                 startDate,
                 endDate,
+                department,
                 cancellationToken);
 
             return Ok(events);
+        }
+
+        /// <summary>
+        /// Retrieves the list of departments that currently have at least one active job vacancy.
+        /// </summary>
+        [HttpGet("departments")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(IReadOnlyList<string>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetActiveDepartments(CancellationToken cancellationToken)
+        {
+            var companyId = GetCurrentCompanyId();
+            var departments = await _eventService.GetActiveDepartmentsAsync(companyId, cancellationToken);
+            return Ok(departments);
         }
 
         /// <summary>
