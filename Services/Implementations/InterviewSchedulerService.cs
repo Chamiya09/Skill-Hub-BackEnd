@@ -52,10 +52,20 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var candidates = new List<InterviewCandidateDto>();
 
             // 1. Check Submissions where IsSelectedForInterview == true
+            // Prioritize candidates who are selected for interview but not yet marked "Ready for Interview"
             var interviewSubmissions = await _dbContext.Submissions
                 .AsNoTracking()
-                .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview)
+                .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview && s.Status != "Ready for Interview")
                 .ToListAsync(cancellationToken);
+
+            // If all selected candidates are already marked or none left, fall back to all selected candidates
+            if (interviewSubmissions.Count == 0)
+            {
+                interviewSubmissions = await _dbContext.Submissions
+                    .AsNoTracking()
+                    .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview)
+                    .ToListAsync(cancellationToken);
+            }
 
             if (interviewSubmissions.Count > 0)
             {
@@ -314,6 +324,41 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
                 _dbContext.Events.Add(newEvent);
                 createdIds.Add(newEvent.Id);
+            }
+
+            // Update candidate status: approved candidates become "Ready for Interview", others remain "Selected"
+            var confirmedCandidateIds = dto.Slots.Select(s => s.CandidateId).Distinct().ToList();
+            if (confirmedCandidateIds.Count > 0)
+            {
+                var subQuery = _dbContext.Submissions
+                    .Where(s => confirmedCandidateIds.Contains(s.CandidateId) && s.IsSelectedForInterview);
+
+                if (dto.JobVacancyId != Guid.Empty)
+                {
+                    subQuery = subQuery.Where(s => s.JobVacancyId == dto.JobVacancyId);
+                }
+
+                var submissionsToUpdate = await subQuery.ToListAsync(cancellationToken);
+                foreach (var sub in submissionsToUpdate)
+                {
+                    sub.Status = "Ready for Interview";
+                    sub.UpdatedAt = DateTime.UtcNow;
+                }
+
+                var appQuery = _dbContext.JobApplications
+                    .Where(a => confirmedCandidateIds.Contains(a.CandidateId));
+
+                if (dto.JobVacancyId != Guid.Empty)
+                {
+                    appQuery = appQuery.Where(a => a.JobId == dto.JobVacancyId);
+                }
+
+                var applicationsToUpdate = await appQuery.ToListAsync(cancellationToken);
+                foreach (var app in applicationsToUpdate)
+                {
+                    app.Status = "Interview";
+                    app.UpdatedAt = DateTime.UtcNow;
+                }
             }
 
             await _dbContext.SaveChangesAsync(cancellationToken);
