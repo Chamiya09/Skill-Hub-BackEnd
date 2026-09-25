@@ -307,17 +307,25 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ? $"Track {slot.TrackNumber}"
                     : slot.TrackName;
 
+                var meetingMode = string.IsNullOrWhiteSpace(slot.MeetingMode) ? "Online" : slot.MeetingMode.Trim();
+                var location = string.IsNullOrWhiteSpace(slot.Location)
+                    ? (meetingMode == "Online" ? "Google Meet (Link will be emailed)" : "Company Office")
+                    : slot.Location.Trim();
+
                 var newEvent = new Event
                 {
                     Id = Guid.NewGuid(),
                     Title = $"Interview: {slot.CandidateName} ({trackName})",
-                    Description = $"Candidate: {slot.CandidateName} ({slot.CandidateEmail})\nRole: {dto.JobTitle}\nParallel Track: {trackName}",
+                    Description = $"Candidate: {slot.CandidateName} ({slot.CandidateEmail})\nRole: {dto.JobTitle}\nParallel Track: {trackName}\nMode: {meetingMode}\nLocation: {location}",
                     EventDate = eventDate,
                     EventTime = timeRange,
                     CreatedBy = hrManagerId,
                     CompanyId = companyId,
                     JobVacancyId = dto.JobVacancyId != Guid.Empty ? dto.JobVacancyId : null,
                     Department = vacancy?.Department,
+                    CandidateId = slot.CandidateId,
+                    MeetingMode = meetingMode,
+                    Location = location,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -371,6 +379,60 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 CreatedEventIds = createdIds,
                 Message = $"Successfully scheduled {createdIds.Count} interviews on your calendar."
             };
+        }
+
+        public async Task<IReadOnlyList<CandidateInterviewEventDto>> GetCandidateInterviewsAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default)
+        {
+            var candidateUser = await _dbContext.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == candidateId, cancellationToken);
+
+            var query = _dbContext.Events
+                .AsNoTracking()
+                .Include(e => e.JobVacancy)
+                    .ThenInclude(j => j!.Company)
+                .Where(e => e.CandidateId == candidateId);
+
+            if (candidateUser != null && !string.IsNullOrWhiteSpace(candidateUser.Email))
+            {
+                var emailMarker = candidateUser.Email.Trim();
+                query = _dbContext.Events
+                    .AsNoTracking()
+                    .Include(e => e.JobVacancy)
+                        .ThenInclude(j => j!.Company)
+                    .Where(e => e.CandidateId == candidateId ||
+                                (e.CandidateId == null && e.Description != null && e.Description.Contains(emailMarker)));
+            }
+
+            var events = await query
+                .OrderBy(e => e.EventDate)
+                .ThenBy(e => e.EventTime)
+                .ToListAsync(cancellationToken);
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            return events.Select(e =>
+            {
+                var isPast = e.EventDate < today;
+                return new CandidateInterviewEventDto
+                {
+                    Id = e.Id,
+                    Title = e.Title,
+                    JobVacancyId = e.JobVacancyId,
+                    JobTitle = e.JobVacancy?.Title ?? "Technical Interview",
+                    CompanyName = e.JobVacancy?.Company?.CompanyName ?? "Skill-Hub Employer",
+                    Department = e.Department ?? e.JobVacancy?.Department,
+                    EventDate = e.EventDate.ToString("yyyy-MM-dd"),
+                    EventTime = e.EventTime,
+                    MeetingMode = string.IsNullOrWhiteSpace(e.MeetingMode) ? "Online" : e.MeetingMode,
+                    Location = e.Location,
+                    Description = e.Description,
+                    Status = isPast ? "Completed" : "Upcoming",
+                    CreatedAt = e.CreatedAt
+                };
+            }).ToList();
         }
 
         private static (string StartTime, string EndTime) ParseEventTimes(string eventTime)

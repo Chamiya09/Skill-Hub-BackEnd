@@ -9,7 +9,7 @@ namespace Skill_Hub_BackEnd.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Produces("application/json")]
-    [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+    [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager,Candidate,CANDIDATE,User")]
     public class EventsController : ControllerBase
     {
         private readonly IEventService _eventService;
@@ -276,6 +276,23 @@ namespace Skill_Hub_BackEnd.Controllers
 
             var result = await _schedulerService.ConfirmInterviewScheduleAsync(dto, hrManagerId, companyId, cancellationToken);
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Retrieves upcoming and scheduled interviews for the authenticated candidate.
+        /// Endpoint: GET /api/Events/my-interviews
+        /// </summary>
+        [HttpGet("my-interviews")]
+        [Authorize(Roles = "Candidate,CANDIDATE,User")]
+        [ProducesResponseType(typeof(IReadOnlyList<CandidateInterviewEventDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetMyInterviews(CancellationToken cancellationToken)
+        {
+            var candidateId = GetCurrentUserId();
+            if (candidateId == Guid.Empty)
+                return Unauthorized(new { message = "Candidate authentication required." });
+
+            var interviews = await _schedulerService.GetCandidateInterviewsAsync(candidateId, cancellationToken);
+            return Ok(interviews);
         }
 
         private Guid GetCurrentUserId()

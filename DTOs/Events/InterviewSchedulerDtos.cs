@@ -120,6 +120,8 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string EndTime { get; set; } = string.Empty; // HH:mm
         public int TrackNumber { get; set; } = 1;
         public string TrackName { get; set; } = string.Empty;
+        public string MeetingMode { get; set; } = "Online"; // "Online" | "Physical"
+        public string Location { get; set; } = string.Empty; // Meeting URL or Physical venue
     }
 
     public class ConfirmInterviewScheduleDto
@@ -138,5 +140,22 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public int ScheduledCount { get; set; }
         public string Message { get; set; } = string.Empty;
         public List<Guid> CreatedEventIds { get; set; } = new();
+    }
+
+    public class CandidateInterviewEventDto
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public Guid? JobVacancyId { get; set; }
+        public string? JobTitle { get; set; }
+        public string? CompanyName { get; set; }
+        public string? Department { get; set; }
+        public string EventDate { get; set; } = string.Empty; // YYYY-MM-DD
+        public string EventTime { get; set; } = string.Empty; // HH:mm - HH:mm
+        public string MeetingMode { get; set; } = "Online"; // "Online" or "Physical"
+        public string? Location { get; set; } // Meeting link or venue
+        public string? Description { get; set; }
+        public string Status { get; set; } = "Upcoming";
+        public DateTime CreatedAt { get; set; }
     }
 }

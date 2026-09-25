@@ -269,12 +269,14 @@ namespace Skill_Hub_BackEnd.Data
                 entity.Property(e => e.Title).HasMaxLength(255).IsRequired();
                 entity.Property(e => e.EventTime).HasMaxLength(50).IsRequired();
                 entity.Property(e => e.Department).HasMaxLength(100);
+                entity.Property(e => e.MeetingMode).HasMaxLength(50);
 
                 entity.HasIndex(e => e.EventDate);
                 entity.HasIndex(e => e.CreatedBy);
                 entity.HasIndex(e => e.CompanyId);
                 entity.HasIndex(e => e.JobVacancyId);
                 entity.HasIndex(e => e.Department);
+                entity.HasIndex(e => e.CandidateId);
 
                 entity.HasOne(e => e.Company)
                       .WithMany()
@@ -285,6 +287,12 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(e => e.JobVacancy)
                       .WithMany()
                       .HasForeignKey(e => e.JobVacancyId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.Candidate)
+                      .WithMany()
+                      .HasForeignKey(e => e.CandidateId)
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.SetNull);
             });

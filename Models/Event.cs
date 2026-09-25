@@ -20,6 +20,12 @@ namespace Skill_Hub_BackEnd.Models
 
         public string? Department { get; set; }
 
+        public Guid? CandidateId { get; set; }
+
+        public string? MeetingMode { get; set; } // "Online" | "Physical"
+
+        public string? Location { get; set; } // Meeting link URL or venue address
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -27,6 +33,7 @@ namespace Skill_Hub_BackEnd.Models
         // Navigation properties
         public virtual Company? Company { get; set; }
         public virtual JobVacancy? JobVacancy { get; set; }
+        public virtual User? Candidate { get; set; }
     }
 }
 

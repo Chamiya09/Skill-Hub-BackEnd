@@ -47,5 +47,12 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid hrManagerId,
             Guid? companyId,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Retrieves upcoming and past interviews scheduled for the authenticated candidate.
+        /// </summary>
+        Task<IReadOnlyList<CandidateInterviewEventDto>> GetCandidateInterviewsAsync(
+            Guid candidateId,
+            CancellationToken cancellationToken = default);
     }
 }
