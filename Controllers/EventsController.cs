@@ -337,7 +337,7 @@ namespace Skill_Hub_BackEnd.Controllers
             var hrManagerId = GetCurrentUserId();
             var companyId = GetCurrentCompanyId();
 
-            var updated = await _eventService.UpdateEventMeetingLinkAsync(id, dto.MeetingLink, hrManagerId, companyId, cancellationToken);
+            var updated = await _eventService.UpdateEventMeetingLinkAsync(id, dto.MeetingLink, dto.MeetingMode, hrManagerId, companyId, cancellationToken);
             if (updated == null)
             {
                 return NotFound(new { message = $"Event with ID '{id}' was not found or could not be updated." });

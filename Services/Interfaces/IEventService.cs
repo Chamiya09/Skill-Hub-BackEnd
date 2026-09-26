@@ -52,6 +52,7 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
         Task<EventResponseDto?> UpdateEventMeetingLinkAsync(
             Guid eventId,
             string newMeetingLink,
+            string? meetingMode,
             Guid hrManagerId,
             Guid? companyId,
             CancellationToken cancellationToken = default);

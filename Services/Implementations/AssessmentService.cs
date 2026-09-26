@@ -959,7 +959,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     dto.ScheduledTime = matchingEvent.EventTime;
                     dto.ScheduledMeetingMode = matchingEvent.MeetingMode;
                     dto.ScheduledLocation = matchingEvent.Location;
-                    dto.Status = "Selected";
+                    dto.Status = "Ready for Interview";
                 }
                 else
                 {

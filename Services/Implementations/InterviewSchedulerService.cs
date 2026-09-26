@@ -335,7 +335,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 createdIds.Add(newEvent.Id);
             }
 
-            // Update candidate status: confirmed candidates become "Selected" (scheduled), unscheduled/cancelled remain "Ready for Interview"
+            // Update candidate status: confirmed candidates become "Ready for Interview", unscheduled remain "Selected"
             var confirmedCandidateIds = dto.Slots.Select(s => s.CandidateId).Distinct().ToList();
             if (confirmedCandidateIds.Count > 0)
             {
@@ -350,7 +350,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 var submissionsToUpdate = await subQuery.ToListAsync(cancellationToken);
                 foreach (var sub in submissionsToUpdate)
                 {
-                    sub.Status = "Selected";
+                    sub.Status = "Ready for Interview";
                     sub.UpdatedAt = DateTime.UtcNow;
                 }
 

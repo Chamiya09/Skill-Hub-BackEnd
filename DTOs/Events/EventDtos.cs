@@ -84,6 +84,8 @@ namespace Skill_Hub_BackEnd.DTOs.Events
     {
         [Required(ErrorMessage = "Meeting link is required.")]
         public string MeetingLink { get; set; } = string.Empty;
+
+        public string? MeetingMode { get; set; }
     }
 }
 

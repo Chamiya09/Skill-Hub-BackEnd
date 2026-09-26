@@ -448,7 +448,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 _dbContext.Events.Add(targetEvent);
             }
 
-            // Update candidate submission status to "Selected"
+            // Update candidate submission status to "Ready for Interview"
             var subQuery = _dbContext.Submissions
                 .Where(s => s.CandidateId == dto.CandidateId && s.IsSelectedForInterview);
             if (dto.JobVacancyId != Guid.Empty)
@@ -458,7 +458,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var submissions = await subQuery.ToListAsync(cancellationToken);
             foreach (var s in submissions)
             {
-                s.Status = "Selected";
+                s.Status = "Ready for Interview";
                 s.UpdatedAt = DateTime.UtcNow;
             }
 
@@ -488,6 +488,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
         public async Task<EventResponseDto?> UpdateEventMeetingLinkAsync(
             Guid eventId,
             string newMeetingLink,
+            string? meetingMode,
             Guid hrManagerId,
             Guid? companyId,
             CancellationToken cancellationToken = default)
@@ -505,6 +506,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var cleanLink = (newMeetingLink ?? string.Empty).Trim();
             ev.Location = cleanLink;
+            if (!string.IsNullOrWhiteSpace(meetingMode))
+            {
+                ev.MeetingMode = meetingMode.Trim();
+            }
             ev.UpdatedAt = DateTime.UtcNow;
 
             if (!string.IsNullOrWhiteSpace(ev.Description) && ev.Description.Contains("Location:"))
@@ -516,6 +521,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     {
                         lines[i] = $"Location: {cleanLink}";
                     }
+                    if (!string.IsNullOrWhiteSpace(meetingMode) && lines[i].StartsWith("Mode:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[i] = $"Mode: {meetingMode.Trim()}";
+                    }
                 }
                 ev.Description = string.Join("\n", lines);
             }
@@ -523,8 +532,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
-                "[EventService] Meeting link updated for event {EventId} to '{Link}' by HR user {HrId}",
-                eventId, cleanLink, hrManagerId);
+                "[EventService] Meeting link updated for event {EventId} to '{Link}' (Mode: {Mode}) by HR user {HrId}",
+                eventId, cleanLink, ev.MeetingMode, hrManagerId);
 
             return MapToDto(ev, null);
         }
