@@ -148,7 +148,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             if (companyId.HasValue && companyId.Value != Guid.Empty)
             {
-                eventsQuery = eventsQuery.Where(e => e.CompanyId == companyId);
+                eventsQuery = eventsQuery.Where(e => e.CompanyId == companyId || e.CreatedBy == companyId);
             }
 
             var events = await eventsQuery.ToListAsync(cancellationToken);
@@ -224,6 +224,17 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var baseUrl = _configuration["AiAgent:BaseUrl"] ?? "http://127.0.0.1:8000";
             var url = $"{baseUrl.TrimEnd('/')}/api/interview-scheduler/generate-schedule";
+
+            if (!companyId.HasValue || companyId.Value == Guid.Empty)
+            {
+                var vacancy = await _dbContext.JobVacancies
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(j => j.Id == dto.JobVacancyId, cancellationToken);
+                if (vacancy != null && vacancy.CompanyId != Guid.Empty)
+                {
+                    companyId = vacancy.CompanyId;
+                }
+            }
 
             var pythonRequest = new
             {
@@ -457,16 +468,25 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         private static string NormalizeTime(string t)
         {
+            if (string.IsNullOrWhiteSpace(t)) return "09:00";
             var clean = t.Trim();
-            if (clean.Contains(' '))
-            {
-                var spaceParts = clean.Split(' ');
-                clean = spaceParts[0];
-            }
-            var subParts = clean.Split(':');
+            var upper = clean.ToUpperInvariant();
+            var isPm = upper.Contains("PM");
+            var isAm = upper.Contains("AM");
+
+            var timeOnly = upper.Replace("AM", "").Replace("PM", "").Trim();
+            var subParts = timeOnly.Split(':');
             if (subParts.Length >= 2 && int.TryParse(subParts[0], out var h) && int.TryParse(subParts[1], out var m))
             {
+                if (isPm && h < 12) h += 12;
+                else if (isAm && h == 12) h = 0;
                 return $"{h:D2}:{m:D2}";
+            }
+            if (int.TryParse(timeOnly, out var singleH))
+            {
+                if (isPm && singleH < 12) singleH += 12;
+                else if (isAm && singleH == 12) singleH = 0;
+                return $"{singleH:D2}:00";
             }
             return clean;
         }
