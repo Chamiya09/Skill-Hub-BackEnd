@@ -52,20 +52,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var candidates = new List<InterviewCandidateDto>();
 
             // 1. Check Submissions where IsSelectedForInterview == true
-            // Prioritize candidates who are selected for interview but not yet marked "Ready for Interview"
             var interviewSubmissions = await _dbContext.Submissions
                 .AsNoTracking()
-                .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview && s.Status != "Ready for Interview")
+                .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview)
                 .ToListAsync(cancellationToken);
-
-            // If all selected candidates are already marked or none left, fall back to all selected candidates
-            if (interviewSubmissions.Count == 0)
-            {
-                interviewSubmissions = await _dbContext.Submissions
-                    .AsNoTracking()
-                    .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview)
-                    .ToListAsync(cancellationToken);
-            }
 
             if (interviewSubmissions.Count > 0)
             {

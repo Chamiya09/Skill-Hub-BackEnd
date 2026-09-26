@@ -964,7 +964,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 else
                 {
                     dto.ScheduledEventId = null;
-                    dto.Status = "Ready for Interview";
+                    dto.Status = "Selected";
                 }
 
                 result.Add(dto);
@@ -996,7 +996,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             submission.IsSelectedForInterview = dto.IsSelectedForInterview;
             submission.ReviewerFeedback = dto.ReviewerFeedback?.Trim();
             submission.ReviewedBy = hrManagerId;
-            submission.Status = clampedScore >= passingThreshold ? "Passed" : "Graded";
+            submission.Status = dto.IsSelectedForInterview ? "Selected" : (clampedScore >= passingThreshold ? "Passed" : "Graded");
             submission.GradedAt = DateTime.UtcNow;
             submission.UpdatedAt = DateTime.UtcNow;
 

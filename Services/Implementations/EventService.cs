@@ -295,7 +295,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 return false;
             }
 
-            // If this is a candidate interview event (CandidateId != null), revert candidate status back to "Ready for Interview"
+            // If this is a candidate interview event (CandidateId != null), keep candidate status as "Selected" so they remain available for rescheduling
             if (e.CandidateId.HasValue)
             {
                 var candidateId = e.CandidateId.Value;
@@ -313,7 +313,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     var subs = await subQuery.ToListAsync(cancellationToken);
                     foreach (var sub in subs)
                     {
-                        sub.Status = "Ready for Interview";
+                        sub.Status = "Selected";
                         sub.UpdatedAt = DateTime.UtcNow;
                     }
 
@@ -324,7 +324,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     var apps = await appQuery.ToListAsync(cancellationToken);
                     foreach (var app in apps)
                     {
-                        app.Status = "Ready for Interview";
+                        app.Status = "Interview";
                         app.UpdatedAt = DateTime.UtcNow;
                     }
                 }
