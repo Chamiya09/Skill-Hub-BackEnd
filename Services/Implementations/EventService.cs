@@ -485,6 +485,50 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             return MapToDto(targetEvent, null);
         }
 
+        public async Task<EventResponseDto?> UpdateEventMeetingLinkAsync(
+            Guid eventId,
+            string newMeetingLink,
+            Guid hrManagerId,
+            Guid? companyId,
+            CancellationToken cancellationToken = default)
+        {
+            var ev = await _dbContext.Events
+                .Include(e => e.JobVacancy)
+                .FirstOrDefaultAsync(e => e.Id == eventId, cancellationToken);
+
+            if (ev == null) return null;
+
+            if (companyId.HasValue && ev.CompanyId.HasValue && ev.CompanyId.Value != companyId.Value && ev.CreatedBy != hrManagerId)
+            {
+                return null;
+            }
+
+            var cleanLink = (newMeetingLink ?? string.Empty).Trim();
+            ev.Location = cleanLink;
+            ev.UpdatedAt = DateTime.UtcNow;
+
+            if (!string.IsNullOrWhiteSpace(ev.Description) && ev.Description.Contains("Location:"))
+            {
+                var lines = ev.Description.Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].StartsWith("Location:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[i] = $"Location: {cleanLink}";
+                    }
+                }
+                ev.Description = string.Join("\n", lines);
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[EventService] Meeting link updated for event {EventId} to '{Link}' by HR user {HrId}",
+                eventId, cleanLink, hrManagerId);
+
+            return MapToDto(ev, null);
+        }
+
         private static bool TryParseMinutes(string timeStr, out int minutes)
         {
             minutes = 0;

@@ -316,6 +316,37 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Update meeting link / location for a scheduled interview event.
+        /// Endpoint: PUT /api/Events/{id}/meeting-link
+        /// </summary>
+        [HttpPut("{id:guid}/meeting-link")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(EventResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateMeetingLink(
+            Guid id,
+            [FromBody] UpdateMeetingLinkDto dto,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var hrManagerId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+
+            var updated = await _eventService.UpdateEventMeetingLinkAsync(id, dto.MeetingLink, hrManagerId, companyId, cancellationToken);
+            if (updated == null)
+            {
+                return NotFound(new { message = $"Event with ID '{id}' was not found or could not be updated." });
+            }
+
+            return Ok(updated);
+        }
+
+        /// <summary>
         /// Retrieves upcoming and scheduled interviews for the authenticated candidate.
         /// Endpoint: GET /api/Events/my-interviews
         /// </summary>

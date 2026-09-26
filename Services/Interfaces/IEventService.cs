@@ -48,6 +48,13 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid hrManagerId,
             Guid? companyId,
             CancellationToken cancellationToken = default);
+
+        Task<EventResponseDto?> UpdateEventMeetingLinkAsync(
+            Guid eventId,
+            string newMeetingLink,
+            Guid hrManagerId,
+            Guid? companyId,
+            CancellationToken cancellationToken = default);
     }
 }
 

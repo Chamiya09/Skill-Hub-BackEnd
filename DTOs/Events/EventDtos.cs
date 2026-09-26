@@ -79,5 +79,11 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string Country { get; set; } = "Sri Lanka";
         public string CountryCode { get; set; } = "LK";
     }
+
+    public class UpdateMeetingLinkDto
+    {
+        [Required(ErrorMessage = "Meeting link is required.")]
+        public string MeetingLink { get; set; } = string.Empty;
+    }
 }
 
