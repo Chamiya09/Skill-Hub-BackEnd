@@ -366,9 +366,19 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 throw new ArgumentException("End time must be after start time.");
             }
 
+            // Retrieve candidate and vacancy details
+            var candidateUser = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == dto.CandidateId, cancellationToken);
+            var candidateName = candidateUser != null ? $"{candidateUser.FirstName} {candidateUser.LastName}".Trim() : "Candidate";
+            var candidateEmail = candidateUser?.Email ?? string.Empty;
+
+            var vacancy = await _dbContext.JobVacancies.AsNoTracking().FirstOrDefaultAsync(j => j.Id == dto.JobVacancyId, cancellationToken);
+            var jobTitle = vacancy?.Title ?? "Interview";
+            var department = vacancy?.Department;
+
             // Check for schedule clashes against existing company/HR events on this date
             var existingDayEvents = await _dbContext.Events
                 .AsNoTracking()
+                .Include(e => e.JobVacancy)
                 .Where(ev => ev.EventDate == eventDate &&
                     (companyId.HasValue ? ev.CompanyId == companyId.Value : ev.CreatedBy == hrManagerId))
                 .ToListAsync(cancellationToken);
@@ -380,24 +390,35 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     continue; // Skip the event currently being rescheduled
                 }
 
+                // Department scoping: Check if event is in the same department, company-wide, or for this specific candidate
+                var evDept = ev.Department ?? ev.JobVacancy?.Department;
+                bool isSameCandidate = ev.CandidateId.HasValue && ev.CandidateId.Value == dto.CandidateId;
+                bool isSameDepartment = !string.IsNullOrWhiteSpace(department) &&
+                                        !string.IsNullOrWhiteSpace(evDept) &&
+                                        string.Equals(evDept.Trim(), department.Trim(), StringComparison.OrdinalIgnoreCase);
+                bool isCompanyWide = string.IsNullOrWhiteSpace(evDept) ||
+                                     string.Equals(evDept.Trim(), "All", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(evDept.Trim(), "Company", StringComparison.OrdinalIgnoreCase);
+
+                // If candidate is applying for a specific department, events in other distinct departments do not clash
+                if (!isSameCandidate && !isSameDepartment && !isCompanyWide)
+                {
+                    continue;
+                }
+
                 if (TryParseTimeRange(ev.EventTime, out var exStart, out var exEnd))
                 {
                     if (newStart < exEnd && newEnd > exStart)
                     {
+                        var scopeDesc = isSameCandidate
+                            ? "this candidate is already scheduled for another interview at this time"
+                            : $"already booked for '{ev.Title}' ({ev.EventTime}) in the {evDept ?? "Company"} schedule";
+
                         throw new InvalidOperationException(
-                            $"The selected time slot ({cleanStart} - {cleanEnd}) is already taken on {dto.EventDate} by '{ev.Title}' ({ev.EventTime}). Please choose another time or date.");
+                            $"The selected time slot ({cleanStart} - {cleanEnd}) on {dto.EventDate} is {scopeDesc}. Please choose another time or date.");
                     }
                 }
             }
-
-            // Retrieve candidate and vacancy details
-            var candidateUser = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == dto.CandidateId, cancellationToken);
-            var candidateName = candidateUser != null ? $"{candidateUser.FirstName} {candidateUser.LastName}".Trim() : "Candidate";
-            var candidateEmail = candidateUser?.Email ?? string.Empty;
-
-            var vacancy = await _dbContext.JobVacancies.AsNoTracking().FirstOrDefaultAsync(j => j.Id == dto.JobVacancyId, cancellationToken);
-            var jobTitle = vacancy?.Title ?? "Interview";
-            var department = vacancy?.Department;
 
             var meetingMode = string.IsNullOrWhiteSpace(dto.MeetingMode) ? "Online" : dto.MeetingMode.Trim();
             var location = string.IsNullOrWhiteSpace(dto.Location)
