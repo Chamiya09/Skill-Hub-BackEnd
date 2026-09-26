@@ -927,19 +927,47 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .Where(j => jobIds.Contains(j.Id))
                 .ToDictionaryAsync(j => j.Id, j => j, cancellationToken);
 
+            // Fetch scheduled interview events for these candidates
+            var scheduledEvents = await _dbContext.Events
+                .AsNoTracking()
+                .Where(e => e.CandidateId.HasValue && candidateIds.Contains(e.CandidateId.Value))
+                .OrderByDescending(e => e.EventDate)
+                .ToListAsync(cancellationToken);
+
             var result = new List<SubmissionDetailDto>();
             foreach (var s in submissions)
             {
                 candidates.TryGetValue(s.CandidateId, out var candidate);
                 jobs.TryGetValue(s.JobVacancyId, out var job);
                 var passingThreshold = s.Assessment?.PassingThreshold ?? 60.00m;
-                result.Add(MapToSubmissionDetailDto(
+                var dto = MapToSubmissionDetailDto(
                     s,
                     candidate?.FullName,
                     candidate?.Email,
                     passingThreshold,
                     job?.Title,
-                    job?.Department));
+                    job?.Department);
+
+                var matchingEvent = scheduledEvents.FirstOrDefault(e =>
+                    e.CandidateId == s.CandidateId &&
+                    (!e.JobVacancyId.HasValue || e.JobVacancyId == s.JobVacancyId));
+
+                if (matchingEvent != null)
+                {
+                    dto.ScheduledEventId = matchingEvent.Id;
+                    dto.ScheduledDate = matchingEvent.EventDate.ToString("yyyy-MM-dd");
+                    dto.ScheduledTime = matchingEvent.EventTime;
+                    dto.ScheduledMeetingMode = matchingEvent.MeetingMode;
+                    dto.ScheduledLocation = matchingEvent.Location;
+                    dto.Status = "Selected";
+                }
+                else
+                {
+                    dto.ScheduledEventId = null;
+                    dto.Status = "Ready for Interview";
+                }
+
+                result.Add(dto);
             }
 
             return result;

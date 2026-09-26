@@ -194,6 +194,11 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public ProctorSummaryDto ProctorSummary { get; set; } = new();
         public bool IsSelectedForInterview { get; set; } = false;
         public string? ReviewerFeedback { get; set; }
+        public Guid? ScheduledEventId { get; set; }
+        public string? ScheduledDate { get; set; }
+        public string? ScheduledTime { get; set; }
+        public string? ScheduledMeetingMode { get; set; }
+        public string? ScheduledLocation { get; set; }
     }
 
     public sealed class CandidateAssessmentListItemDto

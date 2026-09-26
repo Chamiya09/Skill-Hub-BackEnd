@@ -279,6 +279,43 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// HR manually schedules or reschedules an interview for a specific candidate.
+        /// Endpoint: POST /api/Events/schedule-candidate-interview
+        /// </summary>
+        [HttpPost("schedule-candidate-interview")]
+        [ProducesResponseType(typeof(EventResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> ScheduleCandidateInterview(
+            [FromBody] ScheduleCandidateInterviewDto dto,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var hrManagerId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+
+            try
+            {
+                var result = await _eventService.ScheduleCandidateInterviewAsync(
+                    dto, hrManagerId, companyId, cancellationToken);
+                return Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Retrieves upcoming and scheduled interviews for the authenticated candidate.
         /// Endpoint: GET /api/Events/my-interviews
         /// </summary>

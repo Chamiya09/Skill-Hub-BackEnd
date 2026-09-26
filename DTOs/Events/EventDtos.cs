@@ -36,7 +36,38 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public Guid? JobVacancyId { get; set; }
         public string? JobVacancyTitle { get; set; }
         public string? Department { get; set; }
+        public Guid? CandidateId { get; set; }
+        public string? MeetingMode { get; set; }
+        public string? Location { get; set; }
         public DateTime CreatedAt { get; set; }
+    }
+
+    public sealed class ScheduleCandidateInterviewDto
+    {
+        [Required]
+        public Guid CandidateId { get; set; }
+
+        [Required]
+        public Guid JobVacancyId { get; set; }
+
+        [Required]
+        public string EventDate { get; set; } = string.Empty; // "YYYY-MM-DD"
+
+        [Required]
+        public string StartTime { get; set; } = string.Empty; // "HH:mm"
+
+        [Required]
+        public string EndTime { get; set; } = string.Empty; // "HH:mm"
+
+        [Required]
+        public string MeetingMode { get; set; } = "Online"; // "Online" or "Physical"
+
+        [Required]
+        public string Location { get; set; } = string.Empty; // Meeting URL or physical address
+
+        public string? Notes { get; set; }
+
+        public Guid? ExistingEventId { get; set; }
     }
 
     public class NationalHolidayDto
