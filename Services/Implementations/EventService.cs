@@ -418,6 +418,11 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 existing.Description = $"Candidate: {candidateName} ({candidateEmail})\nRole: {jobTitle}\nMode: {meetingMode}\nLocation: {location}{(string.IsNullOrWhiteSpace(dto.Notes) ? "" : $"\nNotes: {dto.Notes.Trim()}")}";
                 existing.EventDate = eventDate;
                 existing.EventTime = $"{cleanStart} - {cleanEnd}";
+                existing.CandidateId = dto.CandidateId;
+                if (dto.JobVacancyId != Guid.Empty)
+                {
+                    existing.JobVacancyId = dto.JobVacancyId;
+                }
                 existing.MeetingMode = meetingMode;
                 existing.Location = location;
                 existing.Department = department ?? existing.Department;

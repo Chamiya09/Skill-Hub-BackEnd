@@ -313,26 +313,45 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     ? (meetingMode == "Online" ? "Google Meet (Link will be emailed)" : "Company Office")
                     : slot.Location.Trim();
 
-                var newEvent = new Event
-                {
-                    Id = Guid.NewGuid(),
-                    Title = $"Interview: {slot.CandidateName} ({trackName})",
-                    Description = $"Candidate: {slot.CandidateName} ({slot.CandidateEmail})\nRole: {dto.JobTitle}\nParallel Track: {trackName}\nMode: {meetingMode}\nLocation: {location}",
-                    EventDate = eventDate,
-                    EventTime = timeRange,
-                    CreatedBy = hrManagerId,
-                    CompanyId = companyId,
-                    JobVacancyId = dto.JobVacancyId != Guid.Empty ? dto.JobVacancyId : null,
-                    Department = vacancy?.Department,
-                    CandidateId = slot.CandidateId,
-                    MeetingMode = meetingMode,
-                    Location = location,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
+                var existingEvent = await _dbContext.Events
+                    .FirstOrDefaultAsync(e => e.CandidateId == slot.CandidateId &&
+                                              (dto.JobVacancyId == Guid.Empty || e.JobVacancyId == dto.JobVacancyId), cancellationToken);
 
-                _dbContext.Events.Add(newEvent);
-                createdIds.Add(newEvent.Id);
+                if (existingEvent != null)
+                {
+                    existingEvent.Title = $"Interview: {slot.CandidateName} ({trackName})";
+                    existingEvent.Description = $"Candidate: {slot.CandidateName} ({slot.CandidateEmail})\nRole: {dto.JobTitle}\nParallel Track: {trackName}\nMode: {meetingMode}\nLocation: {location}";
+                    existingEvent.EventDate = eventDate;
+                    existingEvent.EventTime = timeRange;
+                    existingEvent.Department = vacancy?.Department ?? existingEvent.Department;
+                    existingEvent.MeetingMode = meetingMode;
+                    existingEvent.Location = location;
+                    existingEvent.UpdatedAt = DateTime.UtcNow;
+                    createdIds.Add(existingEvent.Id);
+                }
+                else
+                {
+                    var newEvent = new Event
+                    {
+                        Id = Guid.NewGuid(),
+                        Title = $"Interview: {slot.CandidateName} ({trackName})",
+                        Description = $"Candidate: {slot.CandidateName} ({slot.CandidateEmail})\nRole: {dto.JobTitle}\nParallel Track: {trackName}\nMode: {meetingMode}\nLocation: {location}",
+                        EventDate = eventDate,
+                        EventTime = timeRange,
+                        CreatedBy = hrManagerId,
+                        CompanyId = companyId,
+                        JobVacancyId = dto.JobVacancyId != Guid.Empty ? dto.JobVacancyId : null,
+                        Department = vacancy?.Department,
+                        CandidateId = slot.CandidateId,
+                        MeetingMode = meetingMode,
+                        Location = location,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+
+                    _dbContext.Events.Add(newEvent);
+                    createdIds.Add(newEvent.Id);
+                }
             }
 
             // Update candidate status: confirmed candidates become "Ready for Interview", unscheduled remain "Selected"
@@ -394,17 +413,22 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 .AsNoTracking()
                 .Include(e => e.JobVacancy)
                     .ThenInclude(j => j!.Company)
+                .Include(e => e.Company)
                 .Where(e => e.CandidateId == candidateId);
 
             if (candidateUser != null && !string.IsNullOrWhiteSpace(candidateUser.Email))
             {
-                var emailMarker = candidateUser.Email.Trim();
+                var emailMarker = candidateUser.Email.Trim().ToLower();
+                var nameMarker = candidateUser.FullName?.Trim().ToLower();
+
                 query = _dbContext.Events
                     .AsNoTracking()
                     .Include(e => e.JobVacancy)
                         .ThenInclude(j => j!.Company)
+                    .Include(e => e.Company)
                     .Where(e => e.CandidateId == candidateId ||
-                                (e.CandidateId == null && e.Description != null && e.Description.Contains(emailMarker)));
+                                (e.Description != null && e.Description.ToLower().Contains(emailMarker)) ||
+                                (e.CandidateId == null && nameMarker != null && e.Title.ToLower().Contains(nameMarker)));
             }
 
             var events = await query
@@ -423,7 +447,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Title = e.Title,
                     JobVacancyId = e.JobVacancyId,
                     JobTitle = e.JobVacancy?.Title ?? "Technical Interview",
-                    CompanyName = e.JobVacancy?.Company?.CompanyName ?? "Skill-Hub Employer",
+                    CompanyName = e.JobVacancy?.Company?.CompanyName ?? e.Company?.CompanyName ?? "Skill-Hub Employer",
                     Department = e.Department ?? e.JobVacancy?.Department,
                     EventDate = e.EventDate.ToString("yyyy-MM-dd"),
                     EventTime = e.EventTime,

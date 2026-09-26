@@ -952,7 +952,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     e.CandidateId == s.CandidateId &&
                     (!e.JobVacancyId.HasValue || e.JobVacancyId == s.JobVacancyId));
 
-                if (matchingEvent != null)
+                if (matchingEvent != null && string.Equals(s.Status, "Ready for Interview", StringComparison.OrdinalIgnoreCase))
                 {
                     dto.ScheduledEventId = matchingEvent.Id;
                     dto.ScheduledDate = matchingEvent.EventDate.ToString("yyyy-MM-dd");
@@ -964,6 +964,10 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 else
                 {
                     dto.ScheduledEventId = null;
+                    dto.ScheduledDate = null;
+                    dto.ScheduledTime = null;
+                    dto.ScheduledMeetingMode = null;
+                    dto.ScheduledLocation = null;
                     dto.Status = "Selected";
                 }
 
@@ -990,6 +994,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var clampedScore = Math.Clamp(dto.ExamScore, 0.00m, 100.00m);
             var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
+            var wasSelectedForInterview = submission.IsSelectedForInterview;
 
             submission.ExamScore = clampedScore;
             submission.FinalWeightedScore = clampedScore;
@@ -999,6 +1004,34 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             submission.Status = dto.IsSelectedForInterview ? "Selected" : (clampedScore >= passingThreshold ? "Passed" : "Graded");
             submission.GradedAt = DateTime.UtcNow;
             submission.UpdatedAt = DateTime.UtcNow;
+
+            // When candidate is removed/deselected from interview selection, clean up any scheduled interview events
+            if (!dto.IsSelectedForInterview)
+            {
+                var eventsToRemove = await _dbContext.Events
+                    .Where(e => e.CandidateId == submission.CandidateId &&
+                               (!e.JobVacancyId.HasValue || e.JobVacancyId == submission.JobVacancyId))
+                    .ToListAsync(cancellationToken);
+
+                if (eventsToRemove.Count > 0)
+                {
+                    _dbContext.Events.RemoveRange(eventsToRemove);
+                }
+            }
+            // When candidate is newly selected or re-selected for interview from Performance Hub,
+            // purge any prior/stale interview events so candidate starts fresh with "Selected" status
+            else if (!wasSelectedForInterview)
+            {
+                var staleEvents = await _dbContext.Events
+                    .Where(e => e.CandidateId == submission.CandidateId &&
+                               (!e.JobVacancyId.HasValue || e.JobVacancyId == submission.JobVacancyId))
+                    .ToListAsync(cancellationToken);
+
+                if (staleEvents.Count > 0)
+                {
+                    _dbContext.Events.RemoveRange(staleEvents);
+                }
+            }
 
             // If question breakdown marks were submitted, update Answers json
             if (dto.QuestionReviews != null && dto.QuestionReviews.Count > 0)

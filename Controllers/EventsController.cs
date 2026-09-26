@@ -351,7 +351,7 @@ namespace Skill_Hub_BackEnd.Controllers
         /// Endpoint: GET /api/Events/my-interviews
         /// </summary>
         [HttpGet("my-interviews")]
-        [Authorize(Roles = "Candidate,CANDIDATE,User")]
+        [Authorize(Roles = "Candidate,CANDIDATE,candidate,User,user")]
         [ProducesResponseType(typeof(IReadOnlyList<CandidateInterviewEventDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetMyInterviews(CancellationToken cancellationToken)
         {
@@ -365,12 +365,22 @@ namespace Skill_Hub_BackEnd.Controllers
 
         private Guid GetCurrentUserId()
         {
-            var claim = User.FindFirst("companyId")?.Value
-                ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier)
                 ?? User.FindFirstValue("sub")
                 ?? User.FindFirstValue("userId");
 
-            return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
+            if (Guid.TryParse(claim, out var id) && id != Guid.Empty)
+            {
+                return id;
+            }
+
+            var companyClaim = User.FindFirst("companyId")?.Value;
+            if (Guid.TryParse(companyClaim, out var cId) && cId != Guid.Empty)
+            {
+                return cId;
+            }
+
+            return Guid.Empty;
         }
 
         private Guid? GetCurrentCompanyId()
