@@ -438,13 +438,29 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-            return events.Select(e =>
+            // Check if candidate is hired for any vacancies
+            var hiredAppJobIds = await _dbContext.JobApplications
+                .Where(a => a.CandidateId == candidateId && a.Status == "Hired")
+                .Select(a => a.JobId)
+                .ToListAsync(cancellationToken);
+
+            var hiredSubJobIds = await _dbContext.Submissions
+                .Where(s => s.CandidateId == candidateId && s.Status == "Hired")
+                .Select(s => s.JobVacancyId)
+                .ToListAsync(cancellationToken);
+
+            var hiredJobIds = new HashSet<Guid>(hiredAppJobIds.Concat(hiredSubJobIds));
+
+            var result = events.Select(e =>
             {
                 var isPast = e.EventDate < today;
+                var isHired = (e.JobVacancyId.HasValue && hiredJobIds.Contains(e.JobVacancyId.Value)) ||
+                              (!string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains("[HIRED]"));
+
                 return new CandidateInterviewEventDto
                 {
                     Id = e.Id,
-                    Title = e.Title,
+                    Title = isHired ? $"Official Offer: {e.JobVacancy?.Title ?? e.Title}" : e.Title,
                     JobVacancyId = e.JobVacancyId,
                     JobTitle = e.JobVacancy?.Title ?? "Technical Interview",
                     CompanyName = e.JobVacancy?.Company?.CompanyName ?? e.Company?.CompanyName ?? "Skill-Hub Employer",
@@ -454,10 +470,47 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     MeetingMode = string.IsNullOrWhiteSpace(e.MeetingMode) ? "Online" : e.MeetingMode,
                     Location = e.Location,
                     Description = e.Description,
-                    Status = isPast ? "Completed" : "Upcoming",
+                    Status = isHired ? "Hired" : (isPast ? "Completed" : "Upcoming"),
+                    IsHired = isHired,
+                    HiredMessage = isHired ? "Congratulations! You have been selected and officially hired for this role!" : null,
                     CreatedAt = e.CreatedAt
                 };
             }).ToList();
+
+            // If candidate is hired for a job that doesn't have an Event row yet, synthesize an entry so they see it in My Interviews
+            var eventJobIds = events.Where(e => e.JobVacancyId.HasValue).Select(e => e.JobVacancyId!.Value).ToHashSet();
+            var missingHiredJobIds = hiredJobIds.Where(jId => !eventJobIds.Contains(jId)).ToList();
+            if (missingHiredJobIds.Count > 0)
+            {
+                var missingJobs = await _dbContext.JobVacancies
+                    .Include(j => j.Company)
+                    .Where(j => missingHiredJobIds.Contains(j.Id))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var mj in missingJobs)
+                {
+                    result.Insert(0, new CandidateInterviewEventDto
+                    {
+                        Id = Guid.NewGuid(),
+                        Title = $"Official Offer: {mj.Title}",
+                        JobVacancyId = mj.Id,
+                        JobTitle = mj.Title,
+                        CompanyName = mj.Company?.CompanyName ?? "Skill-Hub Employer",
+                        Department = mj.Department,
+                        EventDate = today.ToString("yyyy-MM-dd"),
+                        EventTime = "Official Offer",
+                        MeetingMode = "Offer",
+                        Location = "Direct Placement",
+                        Description = "[HIRED] Congratulations! You have been officially hired for this role.",
+                        Status = "Hired",
+                        IsHired = true,
+                        HiredMessage = "Congratulations! You have been selected and officially hired for this role!",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            return result;
         }
 
         private static (string StartTime, string EndTime) ParseEventTimes(string eventTime)

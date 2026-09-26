@@ -952,7 +952,23 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     e.CandidateId == s.CandidateId &&
                     (!e.JobVacancyId.HasValue || e.JobVacancyId == s.JobVacancyId));
 
-                if (matchingEvent != null && string.Equals(s.Status, "Ready for Interview", StringComparison.OrdinalIgnoreCase))
+                var isHiredStatus = string.Equals(s.Status, "Hired", StringComparison.OrdinalIgnoreCase) ||
+                                    (matchingEvent?.Description != null && matchingEvent.Description.Contains("[HIRED]"));
+
+                if (isHiredStatus)
+                {
+                    dto.Status = "Hired";
+                    dto.IsHired = true;
+                    if (matchingEvent != null)
+                    {
+                        dto.ScheduledEventId = matchingEvent.Id;
+                        dto.ScheduledDate = matchingEvent.EventDate.ToString("yyyy-MM-dd");
+                        dto.ScheduledTime = matchingEvent.EventTime;
+                        dto.ScheduledMeetingMode = matchingEvent.MeetingMode;
+                        dto.ScheduledLocation = matchingEvent.Location;
+                    }
+                }
+                else if (matchingEvent != null && string.Equals(s.Status, "Ready for Interview", StringComparison.OrdinalIgnoreCase))
                 {
                     dto.ScheduledEventId = matchingEvent.Id;
                     dto.ScheduledDate = matchingEvent.EventDate.ToString("yyyy-MM-dd");
@@ -960,6 +976,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     dto.ScheduledMeetingMode = matchingEvent.MeetingMode;
                     dto.ScheduledLocation = matchingEvent.Location;
                     dto.Status = "Ready for Interview";
+                    dto.IsHired = false;
                 }
                 else
                 {
@@ -969,6 +986,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     dto.ScheduledMeetingMode = null;
                     dto.ScheduledLocation = null;
                     dto.Status = "Selected";
+                    dto.IsHired = false;
                 }
 
                 result.Add(dto);
@@ -1071,6 +1089,82 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
 
             return MapToSubmissionDetailDto(submission, candidate?.FullName, candidate?.Email, passingThreshold);
+        }
+
+        public async Task<SubmissionDetailDto> HireCandidateAsync(
+            Guid submissionId,
+            Guid hrManagerId,
+            CancellationToken cancellationToken = default)
+        {
+            var submission = await _dbContext.Submissions
+                .Include(s => s.Assessment)
+                .FirstOrDefaultAsync(s => s.Id == submissionId, cancellationToken);
+
+            if (submission == null)
+                throw new KeyNotFoundException($"Submission with ID {submissionId} was not found.");
+
+            submission.Status = "Hired";
+            submission.IsSelectedForInterview = true;
+            submission.ReviewedBy = hrManagerId;
+            submission.UpdatedAt = DateTime.UtcNow;
+
+            var application = await _dbContext.JobApplications
+                .FirstOrDefaultAsync(a => a.Id == submission.ApplicationId ||
+                                          (a.CandidateId == submission.CandidateId && a.JobId == submission.JobVacancyId),
+                    cancellationToken);
+
+            if (application != null)
+            {
+                application.Status = "Hired";
+                application.UpdatedAt = DateTime.UtcNow;
+            }
+
+            var matchingEvents = await _dbContext.Events
+                .Where(e => e.CandidateId == submission.CandidateId &&
+                            (!e.JobVacancyId.HasValue || e.JobVacancyId == submission.JobVacancyId))
+                .ToListAsync(cancellationToken);
+
+            foreach (var ev in matchingEvents)
+            {
+                if (string.IsNullOrWhiteSpace(ev.Description))
+                {
+                    ev.Description = "[HIRED] Candidate officially hired by HR.";
+                }
+                else if (!ev.Description.Contains("[HIRED]"))
+                {
+                    ev.Description = "[HIRED] " + ev.Description;
+                }
+                ev.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var candidate = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == submission.CandidateId, cancellationToken);
+            var job = await _dbContext.JobVacancies.AsNoTracking().FirstOrDefaultAsync(j => j.Id == submission.JobVacancyId, cancellationToken);
+
+            var passingThreshold = submission.Assessment?.PassingThreshold ?? 60.00m;
+            var dto = MapToSubmissionDetailDto(
+                submission,
+                candidate?.FullName,
+                candidate?.Email,
+                passingThreshold,
+                job?.Title,
+                job?.Department);
+
+            dto.Status = "Hired";
+            dto.IsHired = true;
+
+            var latestEvent = matchingEvents.OrderByDescending(e => e.EventDate).FirstOrDefault();
+            if (latestEvent != null)
+            {
+                dto.ScheduledEventId = latestEvent.Id;
+                dto.ScheduledDate = latestEvent.EventDate.ToString("yyyy-MM-dd");
+                dto.ScheduledTime = latestEvent.EventTime;
+                dto.ScheduledMeetingMode = latestEvent.MeetingMode;
+                dto.ScheduledLocation = latestEvent.Location;
+            }
+
+            return dto;
         }
 
         #endregion
@@ -1397,7 +1491,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 Answers = answers,
                 ProctorSummary = DeserializeProctorSummary(s.ProctorFlags),
                 IsSelectedForInterview = s.IsSelectedForInterview,
-                ReviewerFeedback = s.ReviewerFeedback
+                ReviewerFeedback = s.ReviewerFeedback,
+                IsHired = string.Equals(s.Status, "Hired", StringComparison.OrdinalIgnoreCase)
             };
         }
 

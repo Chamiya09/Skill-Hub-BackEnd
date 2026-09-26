@@ -156,6 +156,8 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string? Location { get; set; } // Meeting link or venue
         public string? Description { get; set; }
         public string Status { get; set; } = "Upcoming";
+        public bool IsHired { get; set; } = false;
+        public string? HiredMessage { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }

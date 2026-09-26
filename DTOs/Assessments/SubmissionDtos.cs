@@ -199,6 +199,7 @@ namespace Skill_Hub_BackEnd.DTOs.Assessments
         public string? ScheduledTime { get; set; }
         public string? ScheduledMeetingMode { get; set; }
         public string? ScheduledLocation { get; set; }
+        public bool IsHired { get; set; } = false;
     }
 
     public sealed class CandidateAssessmentListItemDto

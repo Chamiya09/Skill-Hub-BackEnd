@@ -500,6 +500,33 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Marks a candidate as officially Hired for the job from Technical Interview Selection.
+        /// Updates the submission, job application, and interview event status.
+        /// </summary>
+        [HttpPost("submissions/{submissionId:guid}/hire")]
+        [Authorize(Roles = "Company,Employer,Admin,HR_Admin,Recruiter,Hiring_Manager")]
+        [ProducesResponseType(typeof(SubmissionDetailDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> HireCandidate(
+            Guid submissionId,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var hrManagerId = GetCurrentUserId();
+                var result = await _assessmentService.HireCandidateAsync(submissionId, hrManagerId, cancellationToken);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Retrieves all technical assessments assigned to the currently authenticated candidate.
         /// </summary>
         [HttpGet("candidate/my-assessments")]
