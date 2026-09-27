@@ -1108,15 +1108,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             submission.ReviewedBy = hrManagerId;
             submission.UpdatedAt = DateTime.UtcNow;
 
-            var application = await _dbContext.JobApplications
-                .FirstOrDefaultAsync(a => a.Id == submission.ApplicationId ||
-                                          (a.CandidateId == submission.CandidateId && a.JobId == submission.JobVacancyId),
-                    cancellationToken);
+            var matchingApps = await _dbContext.JobApplications
+                .Where(a => a.Id == submission.ApplicationId ||
+                            (a.CandidateId == submission.CandidateId && a.JobId == submission.JobVacancyId))
+                .ToListAsync(cancellationToken);
 
-            if (application != null)
+            foreach (var app in matchingApps)
             {
-                application.Status = "Hired";
-                application.UpdatedAt = DateTime.UtcNow;
+                app.Status = "Hired";
+                app.UpdatedAt = DateTime.UtcNow;
             }
 
             var matchingEvents = await _dbContext.Events

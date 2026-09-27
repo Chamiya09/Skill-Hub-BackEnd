@@ -430,13 +430,27 @@ namespace Skill_Hub_BackEnd.Controllers
                 .Select(s => new { s.ApplicationId, s.JobVacancyId, s.IsSelectedForInterview, s.Status })
                 .ToListAsync();
 
+            var hiredEventJobIds = await _dbContext.Events
+                .Where(e => e.CandidateId == userId.Value && e.JobVacancyId.HasValue && !string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains("[HIRED]"))
+                .Select(e => e.JobVacancyId!.Value)
+                .ToListAsync();
+
             var result = applications.Select(a =>
             {
                 var submission = candidateSubmissions
                     .FirstOrDefault(s => s.ApplicationId == a.Id || s.JobVacancyId == a.JobId);
 
                 var status = a.Status;
-                if (submission != null)
+                var isHired = string.Equals(status, "Hired", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(status, "Hire", StringComparison.OrdinalIgnoreCase) ||
+                              (submission != null && (string.Equals(submission.Status, "Hired", StringComparison.OrdinalIgnoreCase) || string.Equals(submission.Status, "Hire", StringComparison.OrdinalIgnoreCase))) ||
+                              hiredEventJobIds.Contains(a.JobId);
+
+                if (isHired)
+                {
+                    status = "Hire";
+                }
+                else if (submission != null)
                 {
                     if (submission.IsSelectedForInterview)
                     {
@@ -444,6 +458,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     }
                     else if (!status.Equals("Interview", StringComparison.OrdinalIgnoreCase) &&
                              !status.Equals("Offer", StringComparison.OrdinalIgnoreCase) &&
+                             !status.Equals("Hire", StringComparison.OrdinalIgnoreCase) &&
                              !status.Equals("Hired", StringComparison.OrdinalIgnoreCase) &&
                              !status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
                     {

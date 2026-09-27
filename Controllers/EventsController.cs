@@ -45,6 +45,34 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// Retrieves the current Google Calendar API configuration and connection status.
+        /// Endpoint: GET /api/Events/holidays/config
+        /// </summary>
+        [HttpGet("holidays/config")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(HolidayConfigDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetHolidayConfig(CancellationToken cancellationToken)
+        {
+            var config = await _holidayService.GetConfigAsync(cancellationToken);
+            return Ok(config);
+        }
+
+        /// <summary>
+        /// Updates the Google Calendar API key, persists to configuration, and tests Google Calendar connectivity.
+        /// Endpoint: POST /api/Events/holidays/config
+        /// </summary>
+        [HttpPost("holidays/config")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(HolidayConfigDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> UpdateHolidayConfig(
+            [FromBody] UpdateHolidayConfigDto dto,
+            CancellationToken cancellationToken)
+        {
+            var config = await _holidayService.UpdateApiKeyAsync(dto?.ApiKey, cancellationToken);
+            return Ok(config);
+        }
+
+        /// <summary>
         /// HR creates an event for the Monthly Planner calendar.
         /// </summary>
         [HttpPost]

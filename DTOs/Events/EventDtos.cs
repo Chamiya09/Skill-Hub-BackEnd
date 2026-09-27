@@ -78,6 +78,21 @@ namespace Skill_Hub_BackEnd.DTOs.Events
         public string Date { get; set; } = string.Empty; // "YYYY-MM-DD"
         public string Country { get; set; } = "Sri Lanka";
         public string CountryCode { get; set; } = "LK";
+        public string Source { get; set; } = "SriLankaGazette";
+    }
+
+    public class HolidayConfigDto
+    {
+        public bool HasApiKey { get; set; }
+        public string? MaskedApiKey { get; set; }
+        public string Source { get; set; } = "SriLankaGazette";
+        public bool IsGoogleConnected { get; set; }
+        public string? LastError { get; set; }
+    }
+
+    public class UpdateHolidayConfigDto
+    {
+        public string? ApiKey { get; set; }
     }
 
     public class UpdateMeetingLinkDto
