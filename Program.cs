@@ -655,6 +655,9 @@ using (var scope = app.Services.CreateScope())
                 ON public.""InterviewPrepGuides"" (""ApplicationId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_JobId""
                 ON public.""InterviewPrepGuides"" (""JobId"");",
+            @"ALTER TABLE public.""InterviewPrepGuides"" ADD COLUMN IF NOT EXISTS ""ApprovalStatus"" character varying(50) DEFAULT 'Approved';",
+            @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_ApprovalStatus""
+                ON public.""InterviewPrepGuides"" (""ApprovalStatus"");",
 
             // 11. Events Table (Monthly Planner & Interview Scheduling)
             @"CREATE TABLE IF NOT EXISTS public.""Events"" (
