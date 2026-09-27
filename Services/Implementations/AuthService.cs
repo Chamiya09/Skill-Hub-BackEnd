@@ -199,6 +199,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Experience = candidate.Experience,
                     Availability = candidate.Availability,
                     AvatarUrl = candidate.AvatarUrl,
+                    Website = candidate.Website,
+                    LinkedinUrl = candidate.LinkedinUrl,
+                    GithubUrl = candidate.GithubUrl,
                     CreatedAt = candidate.CreatedAt,
                     UpdatedAt = candidate.UpdatedAt
                 }
@@ -244,6 +247,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Experience = candidate.Experience,
                     Availability = candidate.Availability,
                     AvatarUrl = candidate.AvatarUrl,
+                    Website = candidate.Website,
+                    LinkedinUrl = candidate.LinkedinUrl,
+                    GithubUrl = candidate.GithubUrl,
                     CreatedAt = candidate.CreatedAt,
                     UpdatedAt = candidate.UpdatedAt
                 }
@@ -284,6 +290,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         Experience = user.Experience,
                         Availability = user.Availability,
                         AvatarUrl = user.AvatarUrl,
+                        Website = user.Website,
+                        LinkedinUrl = user.LinkedinUrl,
+                        GithubUrl = user.GithubUrl,
                         CreatedAt = user.CreatedAt,
                         UpdatedAt = user.UpdatedAt
                     }

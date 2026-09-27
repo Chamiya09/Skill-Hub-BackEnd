@@ -406,6 +406,15 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'KeyHighlights') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""KeyHighlights"" text;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Website') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Website"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'LinkedinUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""LinkedinUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'GithubUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""GithubUrl"" character varying(500);
+                END IF;
             END $$;",
 
             // 2c. Indexes on Users
