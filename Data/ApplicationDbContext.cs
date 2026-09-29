@@ -24,6 +24,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<Submission> Submissions => Set<Submission>();
         public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
         public DbSet<InterviewPrepGuide> InterviewPrepGuides => Set<InterviewPrepGuide>();
+        public DbSet<Event> Events => Set<Event>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -256,6 +257,42 @@ namespace Skill_Hub_BackEnd.Data
                 entity.HasOne(g => g.Job)
                       .WithMany()
                       .HasForeignKey(g => g.JobId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // Event Entity Configurations
+            modelBuilder.Entity<Event>(entity =>
+            {
+                entity.ToTable("Events", "public");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).HasMaxLength(255).IsRequired();
+                entity.Property(e => e.EventTime).HasMaxLength(50).IsRequired();
+                entity.Property(e => e.Department).HasMaxLength(100);
+                entity.Property(e => e.MeetingMode).HasMaxLength(50);
+
+                entity.HasIndex(e => e.EventDate);
+                entity.HasIndex(e => e.CreatedBy);
+                entity.HasIndex(e => e.CompanyId);
+                entity.HasIndex(e => e.JobVacancyId);
+                entity.HasIndex(e => e.Department);
+                entity.HasIndex(e => e.CandidateId);
+
+                entity.HasOne(e => e.Company)
+                      .WithMany()
+                      .HasForeignKey(e => e.CompanyId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.JobVacancy)
+                      .WithMany()
+                      .HasForeignKey(e => e.JobVacancyId)
+                      .IsRequired(false)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.Candidate)
+                      .WithMany()
+                      .HasForeignKey(e => e.CandidateId)
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.SetNull);
             });

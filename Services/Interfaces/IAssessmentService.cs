@@ -137,6 +137,11 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid userId,
             bool isCandidate = false,
             CancellationToken cancellationToken = default);
+
+        Task<SubmissionDetailDto> HireCandidateAsync(
+            Guid submissionId,
+            Guid hrManagerId,
+            CancellationToken cancellationToken = default);
     }
 }
 

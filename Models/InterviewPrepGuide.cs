@@ -58,6 +58,9 @@ namespace Skill_Hub_BackEnd.Models
 
         public string? RoleOverviewSummary { get; set; }
 
+        [MaxLength(50)]
+        public string ApprovalStatus { get; set; } = "Pending";
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

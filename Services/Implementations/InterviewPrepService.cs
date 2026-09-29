@@ -168,7 +168,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var companyName = resolvedCompany ?? "Enterprise Partner";
 
-            // ── Check if an interview prep guide already exists in PostgreSQL ────────
+            // ── Check if an approved interview prep guide already exists in PostgreSQL ────────
             if (!request.ForceRegenerate)
             {
                 var existingGuide = await _dbContext.InterviewPrepGuides
@@ -179,8 +179,9 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     .Include(g => g.Job)
                         .ThenInclude(j => j!.Company)
                     .Where(g =>
-                        (request.ApplicationId.HasValue && g.ApplicationId == request.ApplicationId.Value) ||
-                        (request.JobId.HasValue && g.JobId == request.JobId.Value && (g.CandidateId == candidateId || g.CandidateId == null)))
+                        (g.ApprovalStatus == "Approved" || string.IsNullOrEmpty(g.ApprovalStatus)) &&
+                        ((request.ApplicationId.HasValue && g.ApplicationId == request.ApplicationId.Value) ||
+                        (request.JobId.HasValue && g.JobId == request.JobId.Value && (g.CandidateId == candidateId || g.CandidateId == null))))
                     .OrderByDescending(g => g.CreatedAt)
                     .FirstOrDefaultAsync(cancellationToken);
 
@@ -238,6 +239,18 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
             var candidateExists = await _dbContext.Users.AnyAsync(u => u.Id == candidateId, cancellationToken);
 
+            // Clean up any stale pending drafts for this application/job so they don't linger
+            var staleDrafts = await _dbContext.InterviewPrepGuides
+                .Where(g => g.ApprovalStatus == "Pending" &&
+                    ((request.ApplicationId.HasValue && g.ApplicationId == request.ApplicationId.Value) ||
+                     (request.JobId.HasValue && g.JobId == request.JobId.Value && (g.CandidateId == candidateId || g.CandidateId == null))))
+                .ToListAsync(cancellationToken);
+
+            if (staleDrafts.Count > 0)
+            {
+                _dbContext.InterviewPrepGuides.RemoveRange(staleDrafts);
+            }
+
             var guideEntity = new InterviewPrepGuide
             {
                 Id = Guid.NewGuid(),
@@ -252,6 +265,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 BehavioralQuestionsJson = JsonSerializer.Serialize(practicalImplementationFocus),
                 ProTipsJson = JsonSerializer.Serialize(proTips),
                 ChecklistJson = JsonSerializer.Serialize(checklist),
+                ApprovalStatus = "Pending",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -260,7 +274,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             {
                 _dbContext.InterviewPrepGuides.Add(guideEntity);
                 await _dbContext.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Saved real AI InterviewPrepGuide {GuideId} to PostgreSQL database.", guideEntity.Id);
+                _logger.LogInformation("Saved AI InterviewPrepGuide draft {GuideId} (Pending approval) to database.", guideEntity.Id);
             }
             catch (Exception ex)
             {
@@ -289,6 +303,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 PracticalImplementationFocus = practicalImplementationFocus,
                 ProTips = proTips,
                 PreparationChecklist = checklist,
+                ApprovalStatus = "Pending",
                 CreatedAt = guideEntity.CreatedAt
             };
         }
@@ -388,6 +403,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         .ThenInclude(j => j!.Company)
                 .Include(g => g.Job)
                     .ThenInclude(j => j!.Company)
+                .Where(g => g.ApprovalStatus == "Approved" || string.IsNullOrEmpty(g.ApprovalStatus))
                 .AsQueryable();
 
             if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
@@ -447,6 +463,58 @@ namespace Skill_Hub_BackEnd.Services.Implementations
             await _dbContext.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Deleted InterviewPrepGuide {GuideId} for Candidate {CandidateId}", id, candidateId);
             return true;
+        }
+
+        public async Task<InterviewPrepGuideDto?> ApproveGuideAsync(
+            Guid id,
+            Guid candidateId,
+            CancellationToken cancellationToken = default)
+        {
+            var guide = await _dbContext.InterviewPrepGuides
+                .Include(g => g.JobApplication)
+                    .ThenInclude(a => a!.Job)
+                        .ThenInclude(j => j!.Company)
+                .Include(g => g.Job)
+                    .ThenInclude(j => j!.Company)
+                .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+            if (guide == null)
+            {
+                return null;
+            }
+
+            if (candidateId != Guid.Empty && candidateId != Guid.Parse("11111111-1111-1111-1111-111111111111"))
+            {
+                if (guide.CandidateId.HasValue && guide.CandidateId != candidateId)
+                {
+                    _logger.LogWarning("Candidate {CandidateId} attempted to approve guide {GuideId} owned by {OwnerId}",
+                        candidateId, id, guide.CandidateId);
+                    throw new UnauthorizedAccessException("You are not authorized to approve this interview preparation guide.");
+                }
+            }
+
+            // Remove previous guides for the same application or job to avoid duplicate study entries
+            if (guide.ApplicationId.HasValue || guide.JobId.HasValue)
+            {
+                var previousGuides = await _dbContext.InterviewPrepGuides
+                    .Where(g => g.Id != guide.Id &&
+                        ((guide.ApplicationId.HasValue && g.ApplicationId == guide.ApplicationId.Value) ||
+                         (guide.JobId.HasValue && g.JobId == guide.JobId.Value && (g.CandidateId == guide.CandidateId || g.CandidateId == null))))
+                    .ToListAsync(cancellationToken);
+
+                if (previousGuides.Count > 0)
+                {
+                    _dbContext.InterviewPrepGuides.RemoveRange(previousGuides);
+                }
+            }
+
+            guide.ApprovalStatus = "Approved";
+            guide.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Guide {GuideId} approved by Candidate {CandidateId} and saved to Study Dashboard.", id, candidateId);
+
+            return MapEntityToDto(guide);
         }
 
         public async Task<InterviewPrepEligibilityDto> CheckEligibilityAsync(
@@ -581,6 +649,7 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                 PracticalImplementationFocus = practicalFocus,
                 ProTips = proTips,
                 PreparationChecklist = checklist,
+                ApprovalStatus = entity.ApprovalStatus ?? "Approved",
                 CreatedAt = entity.CreatedAt
             };
         }
