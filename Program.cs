@@ -82,12 +82,21 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
-
-
-builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IHolidayService, GoogleCalendarHolidayService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+// ── AI Interview Slot Generator (Student 3 - Meeting Orchestration) ────────
+builder.Services.AddHttpClient<IInterviewSchedulerService, InterviewSchedulerService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 // ── Agentic CV Evaluation (Multi-Agent Pipeline) ──────────────────────────────
 builder.Services.AddScoped<IAgenticCvService, AgenticCvService>();
+builder.Services.AddScoped<IApplicantScreeningService, ApplicantScreeningService>();
 // ── AI Interview Preparation Guide (Student 1) ───────────────────────────────
 builder.Services.AddScoped<IInterviewPrepService, InterviewPrepService>();
 // ── NeonDB Serverless Warm-up & Keep-Alive (prevents cold-start TimeoutExceptions) ──
@@ -126,8 +135,6 @@ builder.Services.AddHttpClient<IPythonAssessmentAgentClient, PythonAssessmentAge
     client.DefaultRequestHeaders.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 });
-
-
 
 // ==========================================
 // 3. CONTROLLERS & JSON SERIALIZATION
@@ -399,6 +406,15 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'KeyHighlights') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""KeyHighlights"" text;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'Website') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""Website"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'LinkedinUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""LinkedinUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'GithubUrl') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""GithubUrl"" character varying(500);
+                END IF;
             END $$;",
 
             // 2c. Indexes on Users
@@ -647,7 +663,38 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_ApplicationId""
                 ON public.""InterviewPrepGuides"" (""ApplicationId"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_JobId""
-                ON public.""InterviewPrepGuides"" (""JobId"");"
+                ON public.""InterviewPrepGuides"" (""JobId"");",
+            @"ALTER TABLE public.""InterviewPrepGuides"" ADD COLUMN IF NOT EXISTS ""ApprovalStatus"" character varying(50) DEFAULT 'Approved';",
+            @"CREATE INDEX IF NOT EXISTS ""IX_InterviewPrepGuides_ApprovalStatus""
+                ON public.""InterviewPrepGuides"" (""ApprovalStatus"");",
+
+            // 11. Events Table (Monthly Planner & Interview Scheduling)
+            @"CREATE TABLE IF NOT EXISTS public.""Events"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""Title"" character varying(255) NOT NULL,
+                ""Description"" text,
+                ""EventDate"" date NOT NULL,
+                ""EventTime"" character varying(50) NOT NULL,
+                ""CreatedBy"" uuid NOT NULL,
+                ""CompanyId"" uuid REFERENCES public.""Companies""(""Id"") ON DELETE CASCADE,
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""Events_CreatedBy_fkey"";",
+            @"ALTER TABLE public.""Events"" DROP CONSTRAINT IF EXISTS ""FK_Events_Users_CreatedBy"";",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""JobVacancyId"" uuid REFERENCES public.""JobVacancies""(""Id"") ON DELETE SET NULL;",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""Department"" character varying(100);",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""CandidateId"" uuid;",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""MeetingMode"" character varying(50);",
+            @"ALTER TABLE public.""Events"" ADD COLUMN IF NOT EXISTS ""Location"" text;",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_EventDate"" ON public.""Events"" (""EventDate"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CreatedBy"" ON public.""Events"" (""CreatedBy"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CompanyId"" ON public.""Events"" (""CompanyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_JobVacancyId"" ON public.""Events"" (""JobVacancyId"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_Department"" ON public.""Events"" (""Department"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_Events_CandidateId"" ON public.""Events"" (""CandidateId"");",
+            @"UPDATE public.""Events"" e SET ""Department"" = j.""Department"" FROM public.""JobVacancies"" j WHERE e.""JobVacancyId"" = j.""Id"" AND e.""Department"" IS NULL;",
+            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;"
         };
 
         foreach (var ddl in ddlStatements)

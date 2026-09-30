@@ -176,6 +176,9 @@ namespace Skill_Hub_BackEnd.Controllers
                 Experience = user.Experience,
                 Availability = user.Availability,
                 AvatarUrl = user.AvatarUrl,
+                Website = user.Website,
+                LinkedinUrl = user.LinkedinUrl,
+                GithubUrl = user.GithubUrl,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt
             };
@@ -254,6 +257,21 @@ namespace Skill_Hub_BackEnd.Controllers
                 user.AvatarUrl = dto.AvatarUrl.Trim();
             }
 
+            if (dto.Website != null)
+            {
+                user.Website = dto.Website.Trim();
+            }
+
+            if (dto.LinkedinUrl != null)
+            {
+                user.LinkedinUrl = dto.LinkedinUrl.Trim();
+            }
+
+            if (dto.GithubUrl != null)
+            {
+                user.GithubUrl = dto.GithubUrl.Trim();
+            }
+
             user.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
 
@@ -274,6 +292,9 @@ namespace Skill_Hub_BackEnd.Controllers
                 Experience = user.Experience,
                 Availability = user.Availability,
                 AvatarUrl = user.AvatarUrl,
+                Website = user.Website,
+                LinkedinUrl = user.LinkedinUrl,
+                GithubUrl = user.GithubUrl,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt
             };
@@ -292,5 +313,8 @@ namespace Skill_Hub_BackEnd.Controllers
         public string? Experience { get; set; }
         public string? Availability { get; set; }
         public string? AvatarUrl { get; set; }
+        public string? Website { get; set; }
+        public string? LinkedinUrl { get; set; }
+        public string? GithubUrl { get; set; }
     }
 }

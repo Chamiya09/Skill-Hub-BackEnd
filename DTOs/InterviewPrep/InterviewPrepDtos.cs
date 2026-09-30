@@ -171,6 +171,10 @@ namespace Skill_Hub_BackEnd.DTOs.InterviewPrep
 
         public List<string> PreparationChecklist { get; set; } = new();
 
+        public string ApprovalStatus { get; set; } = "Pending";
+
+        public bool IsApproved => string.Equals(ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase);
+
         // Legacy compatibility helpers
         public List<InterviewQuestionDto> TechnicalQuestions { get; set; } = new();
         public List<BehavioralQuestionDto> BehavioralQuestions { get; set; } = new();

@@ -152,6 +152,85 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
+        /// POST /api/interviewprep/{id}/approve
+        /// Approves the AI generated guidelines so they are saved and displayed in the Study Dashboard.
+        /// </summary>
+        [HttpPost("{id:guid}/approve")]
+        public async Task<ActionResult<InterviewPrepGuideDto>> Approve(
+            Guid id,
+            CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+            try
+            {
+                var approved = await _interviewPrepService.ApproveGuideAsync(id, candidateId, cancellationToken);
+                if (approved == null)
+                {
+                    return NotFound(new { message = "Interview preparation guide not found." });
+                }
+
+                _logger.LogInformation("Guide {GuideId} approved successfully by candidate {CandidateId}.", id, candidateId);
+                return Ok(approved);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error approving interview prep guide {GuideId}", id);
+                return StatusCode(500, new { message = "Failed to approve interview preparation guide." });
+            }
+        }
+
+        /// <summary>
+        /// POST /api/interviewprep/{id}/regenerate
+        /// Regenerates fresh AI guidelines for a given guide/application with human review pending.
+        /// </summary>
+        [HttpPost("{id:guid}/regenerate")]
+        public async Task<ActionResult<GenerateInterviewPrepResponseDto>> Regenerate(
+            Guid id,
+            CancellationToken cancellationToken)
+        {
+            var candidateId = GetCandidateId() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+            var existing = await _interviewPrepService.GetGuideByIdAsync(id, cancellationToken);
+            if (existing == null)
+            {
+                return NotFound(new { message = "Interview preparation guide not found." });
+            }
+
+            var request = new GenerateInterviewPrepRequestDto
+            {
+                CandidateId = candidateId,
+                ApplicationId = existing.ApplicationId,
+                JobId = existing.JobId,
+                JobTitle = existing.JobTitle,
+                TargetRole = existing.TargetRole,
+                JobDescription = existing.JobDescription,
+                ForceRegenerate = true
+            };
+
+            try
+            {
+                var newGuide = await _interviewPrepService.GenerateGuideAsync(candidateId, request, cancellationToken);
+                return Ok(new GenerateInterviewPrepResponseDto
+                {
+                    GuideId = newGuide.Id,
+                    Id = newGuide.Id,
+                    Message = "Interview preparation guide regenerated successfully. Pending your review and approval.",
+                    Guide = newGuide
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error regenerating interview prep guide for GuideId {GuideId}", id);
+                return StatusCode(500, new { message = "Failed to regenerate interview preparation guide. Please try again." });
+            }
+        }
+
+        /// <summary>
         /// DELETE /api/interviewprep/{id}
         /// Deletes a saved interview preparation guide from the database.
         /// </summary>

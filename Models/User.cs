@@ -53,6 +53,15 @@ namespace Skill_Hub_BackEnd.Models
         [MaxLength(500)]
         public string? AvatarUrl { get; set; }
 
+        [MaxLength(500)]
+        public string? Website { get; set; }
+
+        [MaxLength(500)]
+        public string? LinkedinUrl { get; set; }
+
+        [MaxLength(500)]
+        public string? GithubUrl { get; set; }
+
         public string? About { get; set; }
 
         public string? KeyHighlights { get; set; }
