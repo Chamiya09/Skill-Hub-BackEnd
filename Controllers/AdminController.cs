@@ -458,17 +458,36 @@ namespace Skill_Hub_BackEnd.Controllers
                     companies = seedCompanies;
                 }
 
+                var companyIds = companies.Select(c => c.Id).ToList();
+
+                var vacancyIds = await _dbContext.JobVacancies
+                    .Where(j => companyIds.Contains(j.CompanyId))
+                    .Select(j => new { j.Id, j.CompanyId })
+                    .ToListAsync();
+
+                var vIds = vacancyIds.Select(v => v.Id).ToList();
+
+                var hiredApplications = await _dbContext.JobApplications
+                    .Where(a => vIds.Contains(a.JobId) && (a.Status == "Hired" || a.Status == "Shortlisted" || a.Status == "Passed"))
+                    .Select(a => a.JobId)
+                    .ToListAsync();
+
+                var hiresByCompany = vacancyIds
+                    .GroupBy(v => v.CompanyId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => {
+                            var jIds = g.Select(x => x.Id).ToHashSet();
+                            return hiredApplications.Count(jobId => jIds.Contains(jobId));
+                        }
+                    );
+
                 var dtoList = companies.Select(c =>
                 {
                     var idStr = c.Id.ToString();
                     var status = _companyStatuses.TryGetValue(idStr, out var s) ? s : "Active";
                     var activeJobs = c.JobVacancies?.Count(j => j.Status == "Active") ?? 0;
-                    if (activeJobs == 0)
-                    {
-                        activeJobs = Math.Max(2, (Math.Abs(c.Id.GetHashCode()) % 15) + 1);
-                    }
-
-                    var totalHires = Math.Max(3, activeJobs * 3 + (Math.Abs(c.Id.GetHashCode()) % 10));
+                    var totalHires = hiresByCompany.TryGetValue(c.Id, out var hCount) ? hCount : 0;
                     var tier = !string.IsNullOrWhiteSpace(c.CompanySize) ? c.CompanySize : "Enterprise";
 
                     return new AdminCompanyDto
