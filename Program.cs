@@ -302,6 +302,7 @@ using (var scope = app.Services.CreateScope())
                 ""Location"" character varying(200),
                 ""Industry"" character varying(100),
                 ""About"" text,
+                ""IsSuspended"" boolean NOT NULL DEFAULT FALSE,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
@@ -348,6 +349,9 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'About') THEN
                     ALTER TABLE public.""Companies"" ADD COLUMN ""About"" text;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'IsSuspended') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""IsSuspended"" boolean NOT NULL DEFAULT FALSE;
+                END IF;
             END $$;",
 
             // 1c. Unique Index on ContactEmail
@@ -367,6 +371,7 @@ using (var scope = app.Services.CreateScope())
                 ""Phone"" character varying(50),
                 ""Location"" character varying(200),
                 ""AvatarUrl"" character varying(500),
+                ""IsSuspended"" boolean NOT NULL DEFAULT FALSE,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
@@ -415,6 +420,9 @@ using (var scope = app.Services.CreateScope())
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'GithubUrl') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""GithubUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'IsSuspended') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""IsSuspended"" boolean NOT NULL DEFAULT FALSE;
                 END IF;
             END $$;",
 

@@ -109,11 +109,41 @@ namespace Skill_Hub_BackEnd.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetCurrentCompany()
         {
-            var companyIdClaim = User.FindFirst("companyId")?.Value 
-                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("id")?.Value;
 
-            if (!Guid.TryParse(companyIdClaim, out var companyId))
+            Guid companyId = Guid.Empty;
+            if (!string.IsNullOrWhiteSpace(idClaim) && Guid.TryParse(idClaim, out var parsedId))
+            {
+                companyId = parsedId;
+            }
+            else
+            {
+                var compClaim = User.FindFirst("companyId")?.Value;
+                if (!string.IsNullOrWhiteSpace(compClaim) && Guid.TryParse(compClaim, out var parsedCompanyId))
+                {
+                    companyId = parsedCompanyId;
+                }
+                else
+                {
+                    var emailClaim = User.FindFirst(ClaimTypes.Email)?.Value
+                        ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+                        ?? User.FindFirst("email")?.Value;
+
+                    if (!string.IsNullOrWhiteSpace(emailClaim))
+                    {
+                        var matchedCompany = await _dbContext.Companies.FirstOrDefaultAsync(c => c.ContactEmail.ToLower() == emailClaim.ToLower());
+                        if (matchedCompany != null)
+                        {
+                            companyId = matchedCompany.Id;
+                        }
+                    }
+                }
+            }
+
+            if (companyId == Guid.Empty)
             {
                 return Unauthorized(new { message = "Invalid or missing company identifier in token." });
             }
