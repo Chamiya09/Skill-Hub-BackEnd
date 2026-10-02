@@ -153,64 +153,34 @@ namespace Skill_Hub_BackEnd.Controllers
                 return BadRequest(new { message = "Email and password are required." });
             }
 
-            // 1. Check against dedicated DB user with Role = "Admin"
-            var existingAdmin = await _dbContext.Users
-                .FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.Trim().ToLower() && (u.Role == "Admin" || u.Role == "Super_Admin"));
+            var normalizedEmail = dto.Email.Trim().ToLower();
 
-            if (existingAdmin != null && BCrypt.Net.BCrypt.Verify(dto.Password, existingAdmin.PasswordHash))
+            // Query database strictly for an Admin user
+            var adminUser = await _dbContext.Users
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && (u.Role == "Admin" || u.Role == "Super_Admin"));
+
+            if (adminUser == null || !BCrypt.Net.BCrypt.Verify(dto.Password, adminUser.PasswordHash))
             {
-                var (token, expiresAt) = _tokenService.GenerateToken(existingAdmin, "SkillHub System Administration");
-                return Ok(new AuthResponseDto
-                {
-                    Token = token,
-                    TokenType = "Bearer",
-                    ExpiresAt = expiresAt,
-                    User = new UserResponseDto
-                    {
-                        Id = existingAdmin.Id,
-                        FullName = existingAdmin.FullName,
-                        Email = existingAdmin.Email,
-                        Role = "Admin",
-                        CreatedAt = existingAdmin.CreatedAt
-                    }
-                });
+                _logger.LogWarning("Failed admin authorization attempt for {Email}", dto.Email);
+                return Unauthorized(new { message = "Invalid email or password." });
             }
 
-            // 2. Default Platform SuperAdmin credentials (override via environment or use standard master credential)
-            var masterEmail = Environment.GetEnvironmentVariable("ADMIN_MASTER_EMAIL") ?? "admin@skillhub.internal";
-            var masterPass = Environment.GetEnvironmentVariable("ADMIN_MASTER_PASSWORD") ?? "SkillHub@Admin2026";
+            var (token, expiresAt) = _tokenService.GenerateToken(adminUser, "SkillHub System Administration");
 
-            if (string.Equals(dto.Email.Trim(), masterEmail, StringComparison.OrdinalIgnoreCase) && dto.Password == masterPass)
+            return Ok(new AuthResponseDto
             {
-                var ephemeralAdmin = new User
+                Token = token,
+                TokenType = "Bearer",
+                ExpiresAt = expiresAt,
+                User = new UserResponseDto
                 {
-                    Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
-                    FullName = "Super Administrator",
-                    Email = masterEmail,
+                    Id = adminUser.Id,
+                    FullName = adminUser.FullName,
+                    Email = adminUser.Email,
                     Role = "Admin",
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                var (token, expiresAt) = _tokenService.GenerateToken(ephemeralAdmin, "SkillHub Root Authority");
-
-                return Ok(new AuthResponseDto
-                {
-                    Token = token,
-                    TokenType = "Bearer",
-                    ExpiresAt = expiresAt,
-                    User = new UserResponseDto
-                    {
-                        Id = ephemeralAdmin.Id,
-                        FullName = ephemeralAdmin.FullName,
-                        Email = ephemeralAdmin.Email,
-                        Role = "Admin",
-                        CreatedAt = ephemeralAdmin.CreatedAt
-                    }
-                });
-            }
-
-            _logger.LogWarning("Failed admin authorization attempt for {Email}", dto.Email);
-            return Unauthorized(new { message = "Invalid Super Admin credentials." });
+                    CreatedAt = adminUser.CreatedAt
+                }
+            });
         }
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _candidateStatuses = new();
@@ -531,82 +501,19 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Retrieves real inquiries list from the database.
+        /// Retrieves inquiries list strictly from the database.
         /// Endpoint: GET /api/admin/inquiries
         /// </summary>
         [HttpGet("inquiries")]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(List<AdminInquiryDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetInquiries()
         {
             try
             {
                 var inquiries = await _dbContext.ContactInquiries
                     .OrderByDescending(i => i.CreatedAt)
-                    .Take(50)
                     .ToListAsync();
-
-                // If no inquiries, seed initial customer and enterprise records
-                if (!inquiries.Any())
-                {
-                    var seedInquiries = new List<ContactInquiry>
-                    {
-                        new ContactInquiry
-                        {
-                            Id = Guid.NewGuid(),
-                            Sender = "Elena Vance",
-                            Organization = "CloudScale Systems Inc.",
-                            SenderType = "Company",
-                            Email = "elena.vance@cloudscale.io",
-                            Subject = "Enterprise Talent Match API & ATS Integration Walkthrough",
-                            Message = "We are scaling our core infrastructure engineering organization and would like to integrate our Greenhouse ATS with Skill Hub's AI Match Engine API. Could you share your OpenAPI schemas, enterprise pricing tiers, and schedule an architecture walkthrough this week?",
-                            Status = "New",
-                            Priority = "High",
-                            CreatedAt = DateTime.UtcNow.AddHours(-4)
-                        },
-                        new ContactInquiry
-                        {
-                            Id = Guid.NewGuid(),
-                            Sender = "David Miller",
-                            SenderType = "Candidate",
-                            Email = "david.miller@gmail.com",
-                            Subject = "Question regarding profile AI verification badge timeline",
-                            Message = "Hello team, my Python Data Structures and Distributed Systems technical assessments were completed yesterday afternoon with an overall 94% score. How long does the verified talent badge typically take to populate on my public candidate profile for employers to view?",
-                            Status = "Resolved",
-                            Priority = "Normal",
-                            CreatedAt = DateTime.UtcNow.AddDays(-1)
-                        },
-                        new ContactInquiry
-                        {
-                            Id = Guid.NewGuid(),
-                            Sender = "Apex Autonomous Robotics",
-                            Organization = "Apex Robotics Labs",
-                            SenderType = "Company",
-                            Email = "talent@apexrobotics.ai",
-                            Subject = "Expedited Access to Top 5% Machine Learning Engineers",
-                            Message = "We require expedited access to thoroughly benchmarked ML engineers specializing in ROS2, CUDA optimization, and Computer Vision. We are looking to fill 5 senior positions immediately and would like to review pre-assessed candidates on your leaderboard.",
-                            Status = "New",
-                            Priority = "High",
-                            CreatedAt = DateTime.UtcNow.AddDays(-2)
-                        },
-                        new ContactInquiry
-                        {
-                            Id = Guid.NewGuid(),
-                            Sender = "Dr. Sarah Jenkins",
-                            Organization = "Global Tech Academy",
-                            SenderType = "Guest",
-                            Email = "sarah.jenkins@consultant.org",
-                            Subject = "Partnership Inquiry for University & Bootcamp Graduates",
-                            Message = "Reaching out on behalf of our tech fellowship to explore whether our graduating cohort of 120 software engineers can participate in Skill Hub's standardized skill assessments to facilitate direct talent placements with hiring partners.",
-                            Status = "Resolved",
-                            Priority = "Normal",
-                            CreatedAt = DateTime.UtcNow.AddDays(-4)
-                        }
-                    };
-
-                    _dbContext.ContactInquiries.AddRange(seedInquiries);
-                    await _dbContext.SaveChangesAsync();
-                    inquiries = seedInquiries;
-                }
 
                 var dtoList = inquiries.Select(i => new AdminInquiryDto
                 {
@@ -626,8 +533,8 @@ namespace Skill_Hub_BackEnd.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching inquiries in Admin");
-                return StatusCode(500, new { message = "Failed to fetch inquiries." });
+                _logger.LogError(ex, "Error fetching inquiries from database in AdminController");
+                return StatusCode(500, new { message = "Failed to fetch inquiries from database." });
             }
         }
 
@@ -675,32 +582,27 @@ namespace Skill_Hub_BackEnd.Controllers
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                 ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
 
-            if (Guid.TryParse(userIdClaim, out var adminId))
+            if (!Guid.TryParse(userIdClaim, out var adminId))
             {
-                var admin = await _dbContext.Users.FindAsync(adminId);
-                if (admin != null)
-                {
-                    if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, admin.PasswordHash))
-                    {
-                        return BadRequest(new { message = "The current password you provided is incorrect." });
-                    }
-
-                    admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
-                    admin.UpdatedAt = DateTime.UtcNow;
-                    await _dbContext.SaveChangesAsync();
-
-                    return Ok(new { message = "Super Admin password updated successfully." });
-                }
+                return Unauthorized(new { message = "Invalid administrative token identification." });
             }
 
-            // Fallback for master ephemeral credentials verification
-            var masterPass = Environment.GetEnvironmentVariable("ADMIN_MASTER_PASSWORD") ?? "SkillHub@Admin2026";
-            if (dto.CurrentPassword == masterPass || dto.CurrentPassword == "admin123")
+            var admin = await _dbContext.Users.FindAsync(adminId);
+            if (admin == null || (admin.Role != "Admin" && admin.Role != "Super_Admin"))
             {
-                return Ok(new { message = "Super Admin security credentials updated successfully." });
+                return Unauthorized(new { message = "Administrator account not found in database." });
             }
 
-            return BadRequest(new { message = "The current password you provided is incorrect." });
+            if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, admin.PasswordHash))
+            {
+                return BadRequest(new { message = "The current password you provided is incorrect." });
+            }
+
+            admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            admin.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new { message = "Super Admin password updated successfully." });
         }
 
         /// <summary>

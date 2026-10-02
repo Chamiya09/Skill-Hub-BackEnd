@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using Skill_Hub_BackEnd.Data;
 using Skill_Hub_BackEnd.Services.Implementations;
 using Skill_Hub_BackEnd.Services.Interfaces;
+using Skill_Hub_BackEnd.Models;
 
 // ==========================================
 // 0. NETWORK CONFIGURATION (FORCE IPV4 FOR CLOUD DBs)
@@ -719,6 +720,25 @@ using (var scope = app.Services.CreateScope())
         }
 
         logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies, Candidate CV Tables verified in 'public').");
+
+        // Ensure Initial Super Admin Seed exists in PostgreSQL
+        var adminExists = dbContext.Users.Any(u => u.Role == "Admin" || u.Role == "Super_Admin");
+        if (!adminExists)
+        {
+            var adminUser = new User
+            {
+                Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                FullName = "Super Administrator",
+                Email = "admin@skillhub.internal",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("SkillHub@Admin2026"),
+                Role = "Admin",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            dbContext.Users.Add(adminUser);
+            dbContext.SaveChanges();
+            logger.LogInformation("Database Seed: Initial Super Admin user successfully created with email 'admin@skillhub.internal'.");
+        }
     }
     catch (Exception ex)
     {
