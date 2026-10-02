@@ -694,7 +694,23 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_Department"" ON public.""Events"" (""Department"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_CandidateId"" ON public.""Events"" (""CandidateId"");",
             @"UPDATE public.""Events"" e SET ""Department"" = j.""Department"" FROM public.""JobVacancies"" j WHERE e.""JobVacancyId"" = j.""Id"" AND e.""Department"" IS NULL;",
-            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;"
+            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;",
+
+            // 12. ContactInquiries Table
+            @"CREATE TABLE IF NOT EXISTS public.""ContactInquiries"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""Sender"" character varying(200) NOT NULL,
+                ""SenderType"" character varying(50) NOT NULL,
+                ""Organization"" character varying(200),
+                ""Email"" character varying(255) NOT NULL,
+                ""Subject"" character varying(300) NOT NULL,
+                ""Message"" text NOT NULL,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'New',
+                ""Priority"" character varying(50) NOT NULL DEFAULT 'Normal',
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_ContactInquiries_CreatedAt"" ON public.""ContactInquiries"" (""CreatedAt"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_ContactInquiries_Status"" ON public.""ContactInquiries"" (""Status"");"
         };
 
         foreach (var ddl in ddlStatements)

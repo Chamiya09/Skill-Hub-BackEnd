@@ -25,6 +25,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
         public DbSet<InterviewPrepGuide> InterviewPrepGuides => Set<InterviewPrepGuide>();
         public DbSet<Event> Events => Set<Event>();
+        public DbSet<ContactInquiry> ContactInquiries => Set<ContactInquiry>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
