@@ -297,7 +297,7 @@ namespace Skill_Hub_BackEnd.Controllers
                     }
 
                     var idStr = c.Id.ToString();
-                    var status = _candidateStatuses.TryGetValue(idStr, out var s) ? s : "Active";
+                    var status = c.IsSuspended ? "Suspended" : (_candidateStatuses.TryGetValue(idStr, out var s) ? s : "Active");
 
                     return new AdminCandidateDto
                     {
@@ -328,11 +328,47 @@ namespace Skill_Hub_BackEnd.Controllers
         /// </summary>
         [HttpPost("candidates/{id}/toggle-status")]
         [AllowAnonymous]
-        public IActionResult ToggleCandidateStatus(string id)
+        public async Task<IActionResult> ToggleCandidateStatus(string id)
         {
             var current = _candidateStatuses.TryGetValue(id, out var s) ? s : "Active";
             var next = current == "Active" ? "Suspended" : "Active";
             _candidateStatuses[id] = next;
+
+            if (Guid.TryParse(id, out var guid))
+            {
+                var user = await _dbContext.Users.FindAsync(guid);
+                if (user != null)
+                {
+                    user.IsSuspended = next == "Suspended";
+                    user.UpdatedAt = DateTime.UtcNow;
+                    await _dbContext.SaveChangesAsync();
+                }
+            }
+            else
+            {
+                var mockCandidateEmail = id switch
+                {
+                    "cand-001" => "alex.rivera@example.com",
+                    "cand-002" => "samantha.chen@mllabs.ai",
+                    "cand-003" => "marcus.vance@cloudarch.dev",
+                    "cand-004" => "elena.rostova@designsystems.io",
+                    "cand-005" => "david.okafor@frontendhub.org",
+                    "cand-006" => "clara.oswald@analytics.co",
+                    _ => null
+                };
+
+                if (!string.IsNullOrEmpty(mockCandidateEmail))
+                {
+                    var candUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == mockCandidateEmail.ToLower());
+                    if (candUser != null)
+                    {
+                        candUser.IsSuspended = next == "Suspended";
+                        candUser.UpdatedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+                    }
+                }
+            }
+
             return Ok(new { id, status = next });
         }
 
@@ -455,7 +491,7 @@ namespace Skill_Hub_BackEnd.Controllers
                 var dtoList = companies.Select(c =>
                 {
                     var idStr = c.Id.ToString();
-                    var status = _companyStatuses.TryGetValue(idStr, out var s) ? s : "Active";
+                    var status = c.IsSuspended ? "Suspended" : (_companyStatuses.TryGetValue(idStr, out var s) ? s : "Active");
                     var activeJobs = c.JobVacancies?.Count(j => j.Status == "Active") ?? 0;
                     var totalHires = hiresByCompany.TryGetValue(c.Id, out var hCount) ? hCount : 0;
                     var tier = !string.IsNullOrWhiteSpace(c.CompanySize) ? c.CompanySize : "Enterprise";
@@ -487,16 +523,186 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Toggles status of company between Active and Pending.
+        /// Toggles the IsSuspended boolean flag for a Candidate or Company in the database.
+        /// Endpoint: PUT /api/admin/users/{userId}/toggle-suspend
+        /// </summary>
+        [HttpPut("users/{userId}/toggle-suspend")]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> ToggleUserSuspend(string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return BadRequest(new { message = "User ID must be provided." });
+            }
+
+            if (!Guid.TryParse(userId, out var guid))
+            {
+                // Fallback for mock IDs if running in frontend-only mock state
+                var mockCurrent = _candidateStatuses.TryGetValue(userId, out var ms) ? ms : "Active";
+                var mockNext = mockCurrent == "Active" ? "Suspended" : "Active";
+                _candidateStatuses[userId] = mockNext;
+                var isSuspended = mockNext == "Suspended";
+
+                // Check known mock candidate emails in database
+                var mockCandidateEmail = userId switch
+                {
+                    "cand-001" => "alex.rivera@example.com",
+                    "cand-002" => "samantha.chen@mllabs.ai",
+                    "cand-003" => "marcus.vance@cloudarch.dev",
+                    "cand-004" => "elena.rostova@designsystems.io",
+                    "cand-005" => "david.okafor@frontendhub.org",
+                    "cand-006" => "clara.oswald@analytics.co",
+                    _ => null
+                };
+
+                if (!string.IsNullOrEmpty(mockCandidateEmail))
+                {
+                    var candUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == mockCandidateEmail.ToLower());
+                    if (candUser != null)
+                    {
+                        candUser.IsSuspended = isSuspended;
+                        candUser.UpdatedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+                        _logger.LogInformation("Admin toggled Candidate '{Email}' via mock ID '{Id}' suspension to {IsSuspended}", candUser.Email, userId, candUser.IsSuspended);
+                    }
+                }
+
+                // Check known mock company emails in database
+                var mockCompanyEmail = userId switch
+                {
+                    "comp-001" => "talent-recruiting@stripe.com",
+                    "comp-002" => "careers@uber.com",
+                    "comp-003" => "engineering-jobs@airbnb.com",
+                    "comp-004" => "talent@scale.com",
+                    "comp-005" => "careers@databricks.com",
+                    "comp-006" => "hr-compliance@nexusquantum.io",
+                    _ => null
+                };
+
+                if (!string.IsNullOrEmpty(mockCompanyEmail))
+                {
+                    var comp = await _dbContext.Companies.FirstOrDefaultAsync(c => c.ContactEmail.ToLower() == mockCompanyEmail.ToLower());
+                    if (comp != null)
+                    {
+                        comp.IsSuspended = isSuspended;
+                        comp.UpdatedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+                        _logger.LogInformation("Admin toggled Company '{Email}' via mock ID '{Id}' suspension to {IsSuspended}", comp.ContactEmail, userId, comp.IsSuspended);
+                    }
+                }
+
+                return Ok(new
+                {
+                    id = userId,
+                    isSuspended = isSuspended,
+                    status = mockNext,
+                    message = $"Account {userId} status updated to {mockNext}."
+                });
+            }
+
+            // 1. Check if ID belongs to a Candidate User
+            var user = await _dbContext.Users.FindAsync(guid);
+            if (user != null)
+            {
+                user.IsSuspended = !user.IsSuspended;
+                user.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+
+                var statusStr = user.IsSuspended ? "Suspended" : "Active";
+                _candidateStatuses[userId] = statusStr;
+
+                _logger.LogInformation("Admin toggled User '{Email}' suspension to {IsSuspended}", user.Email, user.IsSuspended);
+
+                return Ok(new
+                {
+                    id = user.Id.ToString(),
+                    isSuspended = user.IsSuspended,
+                    status = statusStr,
+                    role = user.Role,
+                    email = user.Email,
+                    name = user.FullName,
+                    message = $"Candidate account '{user.FullName}' is now {statusStr}."
+                });
+            }
+
+            // 2. Check if ID belongs to a Company
+            var company = await _dbContext.Companies.FindAsync(guid);
+            if (company != null)
+            {
+                company.IsSuspended = !company.IsSuspended;
+                company.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+
+                var statusStr = company.IsSuspended ? "Suspended" : "Active";
+                _companyStatuses[userId] = statusStr;
+
+                _logger.LogInformation("Admin toggled Company '{CompanyName}' suspension to {IsSuspended}", company.CompanyName, company.IsSuspended);
+
+                return Ok(new
+                {
+                    id = company.Id.ToString(),
+                    isSuspended = company.IsSuspended,
+                    status = statusStr,
+                    role = "Company",
+                    email = company.ContactEmail,
+                    name = company.CompanyName,
+                    message = $"Company account '{company.CompanyName}' is now {statusStr}."
+                });
+            }
+
+            return NotFound(new { message = $"No Candidate user or Company was found with ID '{userId}'." });
+        }
+
+        /// <summary>
+        /// Toggles status of company between Active and Suspended.
         /// Endpoint: POST /api/admin/companies/{id}/toggle-status
         /// </summary>
         [HttpPost("companies/{id}/toggle-status")]
         [AllowAnonymous]
-        public IActionResult ToggleCompanyStatus(string id)
+        public async Task<IActionResult> ToggleCompanyStatus(string id)
         {
             var current = _companyStatuses.TryGetValue(id, out var s) ? s : "Active";
-            var next = current == "Active" ? "Pending" : "Active";
+            var next = current == "Active" ? "Suspended" : "Active";
             _companyStatuses[id] = next;
+
+            if (Guid.TryParse(id, out var guid))
+            {
+                var company = await _dbContext.Companies.FindAsync(guid);
+                if (company != null)
+                {
+                    company.IsSuspended = next == "Suspended";
+                    company.UpdatedAt = DateTime.UtcNow;
+                    await _dbContext.SaveChangesAsync();
+                }
+            }
+            else
+            {
+                var mockCompanyEmail = id switch
+                {
+                    "comp-001" => "talent-recruiting@stripe.com",
+                    "comp-002" => "careers@uber.com",
+                    "comp-003" => "engineering-jobs@airbnb.com",
+                    "comp-004" => "talent@scale.com",
+                    "comp-005" => "careers@databricks.com",
+                    "comp-006" => "hr-compliance@nexusquantum.io",
+                    _ => null
+                };
+
+                if (!string.IsNullOrEmpty(mockCompanyEmail))
+                {
+                    var comp = await _dbContext.Companies.FirstOrDefaultAsync(c => c.ContactEmail.ToLower() == mockCompanyEmail.ToLower());
+                    if (comp != null)
+                    {
+                        comp.IsSuspended = next == "Suspended";
+                        comp.UpdatedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+                    }
+                }
+            }
+
             return Ok(new { id, status = next });
         }
 

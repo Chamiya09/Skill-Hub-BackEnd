@@ -180,7 +180,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 LinkedinUrl = user.LinkedinUrl,
                 GithubUrl = user.GithubUrl,
                 CreatedAt = user.CreatedAt,
-                UpdatedAt = user.UpdatedAt
+                UpdatedAt = user.UpdatedAt,
+                IsSuspended = user.IsSuspended
             };
 
             return Ok(response);
@@ -296,7 +297,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 LinkedinUrl = user.LinkedinUrl,
                 GithubUrl = user.GithubUrl,
                 CreatedAt = user.CreatedAt,
-                UpdatedAt = user.UpdatedAt
+                UpdatedAt = user.UpdatedAt,
+                IsSuspended = user.IsSuspended
             };
 
             return Ok(response);

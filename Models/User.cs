@@ -70,6 +70,8 @@ namespace Skill_Hub_BackEnd.Models
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        public bool IsSuspended { get; set; } = false;
+
         public ICollection<CandidateSkill> Skills { get; set; } = new List<CandidateSkill>();
         public ICollection<CandidateExperience> Experiences { get; set; } = new List<CandidateExperience>();
         public ICollection<CandidateCertification> Certifications { get; set; } = new List<CandidateCertification>();

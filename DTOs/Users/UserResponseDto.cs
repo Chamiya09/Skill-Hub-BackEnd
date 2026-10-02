@@ -29,5 +29,6 @@ namespace Skill_Hub_BackEnd.DTOs.Users
         public string? About { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public bool IsSuspended { get; set; } = false;
     }
 }

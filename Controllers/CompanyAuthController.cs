@@ -146,7 +146,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 Industry = company.Industry,
                 About = company.About,
                 CreatedAt = company.CreatedAt,
-                UpdatedAt = company.UpdatedAt
+                UpdatedAt = company.UpdatedAt,
+                IsSuspended = company.IsSuspended
             };
 
             return Ok(response);
@@ -273,7 +274,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 Industry = company.Industry,
                 About = company.About,
                 CreatedAt = company.CreatedAt,
-                UpdatedAt = company.UpdatedAt
+                UpdatedAt = company.UpdatedAt,
+                IsSuspended = company.IsSuspended
             };
 
             return Ok(response);

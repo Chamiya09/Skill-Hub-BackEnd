@@ -82,7 +82,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Industry = company.Industry,
                     About = company.About,
                     CreatedAt = company.CreatedAt,
-                    UpdatedAt = company.UpdatedAt
+                    UpdatedAt = company.UpdatedAt,
+                    IsSuspended = company.IsSuspended
                 }
             };
         }
@@ -130,7 +131,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     Industry = company.Industry,
                     About = company.About,
                     CreatedAt = company.CreatedAt,
-                    UpdatedAt = company.UpdatedAt
+                    UpdatedAt = company.UpdatedAt,
+                    IsSuspended = company.IsSuspended
                 }
             };
         }
@@ -203,7 +205,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     LinkedinUrl = candidate.LinkedinUrl,
                     GithubUrl = candidate.GithubUrl,
                     CreatedAt = candidate.CreatedAt,
-                    UpdatedAt = candidate.UpdatedAt
+                    UpdatedAt = candidate.UpdatedAt,
+                    IsSuspended = candidate.IsSuspended
                 }
             };
         }
@@ -251,7 +254,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                     LinkedinUrl = candidate.LinkedinUrl,
                     GithubUrl = candidate.GithubUrl,
                     CreatedAt = candidate.CreatedAt,
-                    UpdatedAt = candidate.UpdatedAt
+                    UpdatedAt = candidate.UpdatedAt,
+                    IsSuspended = candidate.IsSuspended
                 }
             };
         }
@@ -294,7 +298,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         LinkedinUrl = user.LinkedinUrl,
                         GithubUrl = user.GithubUrl,
                         CreatedAt = user.CreatedAt,
-                        UpdatedAt = user.UpdatedAt
+                        UpdatedAt = user.UpdatedAt,
+                        IsSuspended = user.IsSuspended
                     }
                 };
             }
@@ -333,7 +338,8 @@ namespace Skill_Hub_BackEnd.Services.Implementations
                         Industry = company.Industry,
                         About = company.About,
                         CreatedAt = company.CreatedAt,
-                        UpdatedAt = company.UpdatedAt
+                        UpdatedAt = company.UpdatedAt,
+                        IsSuspended = company.IsSuspended
                     }
                 };
             }
