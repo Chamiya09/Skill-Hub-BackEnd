@@ -17,14 +17,8 @@ LOCATION="eastasia"
 ENVIRONMENT_NAME="cae-skillhub-prod"
 APP_NAME="ca-skillhub-backend"
 
-# Target image with SHA tag to bypass Container App image layer caching
 GITHUB_USERNAME="chamiya09"
-GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || true)
-DEFAULT_TAG="latest"
-if [ -n "${GIT_SHA}" ]; then
-    DEFAULT_TAG="sha-${GIT_SHA}"
-fi
-IMAGE_TAG="${1:-${IMAGE_TAG:-${DEFAULT_TAG}}}"
+IMAGE_TAG="${1:-${IMAGE_TAG:-latest}}"
 IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/skill-hub-backend:${IMAGE_TAG}"
 
 # Minimal resource footprint (Lowest possible cost tier)
@@ -148,6 +142,14 @@ if [ -z "${APP_EXISTS}" ]; then
         --env-vars \
             ASPNETCORE_ENVIRONMENT="Production" \
             ASPNETCORE_HTTP_PORTS="${TARGET_PORT}" \
+            ConnectionStrings__DefaultConnection="secretref:db-connection" \
+            JwtSettings__SecretKey="secretref:jwt-secret" \
+            JwtSettings__Issuer="SkillHubApi" \
+            JwtSettings__Audience="SkillHubClients" \
+            GoogleCalendar__ApiKey="secretref:calendar-key" \
+            Groq__ApiKey="secretref:groq-key" \
+            AiAgent__BaseUrl="http://127.0.0.1:8000/" \
+            ExecutionEngine__Judge0Url="http://127.0.0.1:2358" \
         --output table
 else
     echo "🔄 Updating existing Container App..."
@@ -162,6 +164,14 @@ else
         --set-env-vars \
             ASPNETCORE_ENVIRONMENT="Production" \
             ASPNETCORE_HTTP_PORTS="${TARGET_PORT}" \
+            ConnectionStrings__DefaultConnection="secretref:db-connection" \
+            JwtSettings__SecretKey="secretref:jwt-secret" \
+            JwtSettings__Issuer="SkillHubApi" \
+            JwtSettings__Audience="SkillHubClients" \
+            GoogleCalendar__ApiKey="secretref:calendar-key" \
+            Groq__ApiKey="secretref:groq-key" \
+            AiAgent__BaseUrl="http://127.0.0.1:8000/" \
+            ExecutionEngine__Judge0Url="http://127.0.0.1:2358" \
         --output table
 fi
 
