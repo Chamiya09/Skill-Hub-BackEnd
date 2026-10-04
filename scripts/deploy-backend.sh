@@ -17,9 +17,15 @@ LOCATION="eastasia"
 ENVIRONMENT_NAME="cae-skillhub-prod"
 APP_NAME="ca-skillhub-backend"
 
-# !!! REPLACE WITH YOUR ACTUAL LOWERCASE GITHUB USERNAME !!!
+# Target image with SHA tag to bypass Container App image layer caching
 GITHUB_USERNAME="chamiya09"
-IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/skill-hub-backend:latest"
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || true)
+DEFAULT_TAG="latest"
+if [ -n "${GIT_SHA}" ]; then
+    DEFAULT_TAG="sha-${GIT_SHA}"
+fi
+IMAGE_TAG="${1:-${IMAGE_TAG:-${DEFAULT_TAG}}}"
+IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/skill-hub-backend:${IMAGE_TAG}"
 
 # Minimal resource footprint (Lowest possible cost tier)
 CPU="0.25"
