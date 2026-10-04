@@ -252,6 +252,27 @@ namespace Skill_Hub_BackEnd.Controllers
                     UpdatedAt = company.UpdatedAt,
                     IsSuspended = company.IsSuspended
                 };
+                Id = user.Id,
+                CompanyId = user.CompanyId,
+                CompanyName = string.Empty,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                FullName = user.FullName,
+                Email = user.Email,
+                ContactEmail = user.Email,
+                Role = user.Role,
+                Headline = user.Headline,
+                Phone = user.Phone,
+                Location = user.Location,
+                Experience = user.Experience,
+                Availability = user.Availability,
+                AvatarUrl = user.AvatarUrl,
+                Website = user.Website,
+                LinkedinUrl = user.LinkedinUrl,
+                GithubUrl = user.GithubUrl,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
+            };
 
                 return Ok(response);
             }
