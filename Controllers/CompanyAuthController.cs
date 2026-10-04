@@ -139,6 +139,14 @@ namespace Skill_Hub_BackEnd.Controllers
                         {
                             companyId = matchedCompany.Id;
                         }
+                        else
+                        {
+                            var matchedUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == emailClaim.ToLower());
+                            if (matchedUser != null)
+                            {
+                                companyId = matchedUser.Id;
+                            }
+                        }
                     }
                 }
             }
@@ -149,38 +157,69 @@ namespace Skill_Hub_BackEnd.Controllers
             }
 
             var company = await _dbContext.Companies.FindAsync(companyId);
-            if (company == null)
+            if (company != null)
             {
-                return NotFound(new { message = "Company profile not found in database." });
+                var response = new UserResponseDto
+                {
+                    Id = company.Id,
+                    CompanyId = company.Id,
+                    CompanyName = company.CompanyName,
+                    AdminName = company.AdminName ?? company.CompanyName,
+                    FullName = company.AdminName ?? company.CompanyName,
+                    Email = company.ContactEmail,
+                    ContactEmail = company.ContactEmail,
+                    Role = "Company",
+                    Phone = company.Phone,
+                    CompanySize = company.CompanySize,
+                    FoundedYear = company.FoundedYear,
+                    LogoUrl = company.LogoUrl,
+                    Website = company.Website,
+                    LinkedinUrl = company.LinkedinUrl,
+                    TwitterUrl = company.TwitterUrl,
+                    GithubUrl = company.GithubUrl,
+                    Location = company.Location,
+                    Industry = company.Industry,
+                    About = company.About,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt,
+                    IsSuspended = company.IsSuspended
+                };
+
+                return Ok(response);
             }
 
-            var response = new UserResponseDto
+            var user = await _dbContext.Users.FindAsync(companyId);
+            if (user != null)
             {
-                Id = company.Id,
-                CompanyId = company.Id,
-                CompanyName = company.CompanyName,
-                AdminName = company.AdminName ?? company.CompanyName,
-                FullName = company.AdminName ?? company.CompanyName,
-                Email = company.ContactEmail,
-                ContactEmail = company.ContactEmail,
-                Role = "Company",
-                Phone = company.Phone,
-                CompanySize = company.CompanySize,
-                FoundedYear = company.FoundedYear,
-                LogoUrl = company.LogoUrl,
-                Website = company.Website,
-                LinkedinUrl = company.LinkedinUrl,
-                TwitterUrl = company.TwitterUrl,
-                GithubUrl = company.GithubUrl,
-                Location = company.Location,
-                Industry = company.Industry,
-                About = company.About,
-                CreatedAt = company.CreatedAt,
-                UpdatedAt = company.UpdatedAt,
-                IsSuspended = company.IsSuspended
-            };
+                var response = new UserResponseDto
+                {
+                    Id = user.Id,
+                    CompanyId = user.CompanyId,
+                    CompanyName = string.Empty,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    ContactEmail = user.Email,
+                    Role = user.Role,
+                    Headline = user.Headline,
+                    Phone = user.Phone,
+                    Location = user.Location,
+                    Experience = user.Experience,
+                    Availability = user.Availability,
+                    AvatarUrl = user.AvatarUrl,
+                    Website = user.Website,
+                    LinkedinUrl = user.LinkedinUrl,
+                    GithubUrl = user.GithubUrl,
+                    CreatedAt = user.CreatedAt,
+                    UpdatedAt = user.UpdatedAt,
+                    IsSuspended = user.IsSuspended
+                };
 
-            return Ok(response);
+                return Ok(response);
+            }
+
+            return NotFound(new { message = "Company or User profile not found in database." });
         }
 
         /// <summary>
