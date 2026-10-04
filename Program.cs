@@ -4,9 +4,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Skill_Hub_BackEnd.Data;
-using Skill_Hub_BackEnd.Services.Implementations;
-using Skill_Hub_BackEnd.Services.Interfaces;
-using Skill_Hub_BackEnd.Models;
+using Skill_Hub_BackEnd.Services.Admin;
+using Skill_Hub_BackEnd.Services.Jobs;
+using Skill_Hub_BackEnd.Services.Candidates;
+using Skill_Hub_BackEnd.Services.Assessments;
+using Skill_Hub_BackEnd.Services.Interviews;
+using Skill_Hub_BackEnd.Models.Admin;
+using Skill_Hub_BackEnd.Models.Jobs;
+using Skill_Hub_BackEnd.Models.Candidates;
+using Skill_Hub_BackEnd.Models.Assessments;
+using Skill_Hub_BackEnd.Models.Interviews;
+
 
 // ==========================================
 // 0. NETWORK CONFIGURATION (FORCE IPV4 FOR CLOUD DBs)
