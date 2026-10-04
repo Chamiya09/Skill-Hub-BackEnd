@@ -31,39 +31,6 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
-// Local development convenience: the Python worker already owns the repository's
-// untracked .env file. ASP.NET does not load dotenv files automatically, so import
-// only the two Groq settings when they were not supplied by user-secrets, process
-// environment variables, or deployment configuration. Never commit the .env file.
-if (builder.Environment.IsDevelopment() &&
-    string.IsNullOrWhiteSpace(builder.Configuration["Groq:ApiKey"]) &&
-    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GROQ_API_KEY")))
-{
-    var groqEnvPath = Path.GetFullPath(Path.Combine(
-        builder.Environment.ContentRootPath,
-        "..",
-        "Skill-Hub-AI-Agent",
-        ".env"));
-
-    if (File.Exists(groqEnvPath))
-    {
-        foreach (var rawLine in File.ReadLines(groqEnvPath))
-        {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-
-            var separator = line.IndexOf('=');
-            if (separator <= 0) continue;
-
-            var key = line[..separator].Trim();
-            var value = line[(separator + 1)..].Trim().Trim('"', '\'');
-            if (key == "GROQ_API_KEY") builder.Configuration["Groq:ApiKey"] = value;
-            if (key == "GROQ_MODEL") builder.Configuration["Groq:Model"] = value;
-            if (key == "GROQ_FALLBACK_MODEL") builder.Configuration["Groq:FallbackModel"] = value;
-        }
-    }
-}
-
 // ==========================================
 // 1. DATABASE & EF CORE (POSTGRESQL / NEONDB)
 // ==========================================

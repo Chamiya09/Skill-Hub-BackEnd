@@ -147,7 +147,6 @@ if [ -z "${APP_EXISTS}" ]; then
             JwtSettings__Issuer="SkillHubApi" \
             JwtSettings__Audience="SkillHubClients" \
             GoogleCalendar__ApiKey="secretref:calendar-key" \
-            Groq__ApiKey="secretref:groq-key" \
             AiAgent__BaseUrl="http://127.0.0.1:8000/" \
             ExecutionEngine__Judge0Url="http://127.0.0.1:2358" \
         --output table
@@ -169,7 +168,6 @@ else
             JwtSettings__Issuer="SkillHubApi" \
             JwtSettings__Audience="SkillHubClients" \
             GoogleCalendar__ApiKey="secretref:calendar-key" \
-            Groq__ApiKey="secretref:groq-key" \
             AiAgent__BaseUrl="http://127.0.0.1:8000/" \
             ExecutionEngine__Judge0Url="http://127.0.0.1:2358" \
         --output table
