@@ -3,8 +3,22 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
-# dotenv files
+## =========================================================================
+## 1. SENSITIVE CREDENTIALS, LOCAL CONFIGURATIONS & ENVIRONMENT FILES
+## =========================================================================
+# Local and development appsettings (Never push secrets or developer DB URLs)
+appsettings.*.json
+!appsettings.json
+!appsettings.Production.json
+
+# Local developer overrides & user secrets
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
 .env
+.env.*
+*.env
+
 
 # User-specific files
 *.rsuser
