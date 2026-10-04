@@ -254,15 +254,13 @@ var app = builder.Build();
 // ==========================================
 // 7. HTTP REQUEST PIPELINE MIDDLEWARE
 // ==========================================
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments for API documentation and cloud testing
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Skill Hub API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Skill Hub API v1");
+    c.RoutePrefix = "swagger";
+});
 
 if (!app.Environment.IsDevelopment())
 {
@@ -276,7 +274,10 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Redirect root URL directly to Swagger UI in development
+// Health check endpoint for cloud monitoring & load balancers
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "SkillHub.Backend", timestamp = DateTime.UtcNow }));
+
+// Redirect root URL directly to Swagger UI
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
 // ==========================================
