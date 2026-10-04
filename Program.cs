@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using Skill_Hub_BackEnd.Data;
 using Skill_Hub_BackEnd.Services.Implementations;
 using Skill_Hub_BackEnd.Services.Interfaces;
+using Skill_Hub_BackEnd.Models;
 
 // ==========================================
 // 0. NETWORK CONFIGURATION (FORCE IPV4 FOR CLOUD DBs)
@@ -301,6 +302,7 @@ using (var scope = app.Services.CreateScope())
                 ""Location"" character varying(200),
                 ""Industry"" character varying(100),
                 ""About"" text,
+                ""IsSuspended"" boolean NOT NULL DEFAULT FALSE,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
@@ -347,6 +349,9 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'About') THEN
                     ALTER TABLE public.""Companies"" ADD COLUMN ""About"" text;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Companies' AND column_name = 'IsSuspended') THEN
+                    ALTER TABLE public.""Companies"" ADD COLUMN ""IsSuspended"" boolean NOT NULL DEFAULT FALSE;
+                END IF;
             END $$;",
 
             // 1c. Unique Index on ContactEmail
@@ -366,6 +371,7 @@ using (var scope = app.Services.CreateScope())
                 ""Phone"" character varying(50),
                 ""Location"" character varying(200),
                 ""AvatarUrl"" character varying(500),
+                ""IsSuspended"" boolean NOT NULL DEFAULT FALSE,
                 ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
                 ""UpdatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
             );",
@@ -414,6 +420,9 @@ using (var scope = app.Services.CreateScope())
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'GithubUrl') THEN
                     ALTER TABLE public.""Users"" ADD COLUMN ""GithubUrl"" character varying(500);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Users' AND column_name = 'IsSuspended') THEN
+                    ALTER TABLE public.""Users"" ADD COLUMN ""IsSuspended"" boolean NOT NULL DEFAULT FALSE;
                 END IF;
             END $$;",
 
@@ -694,7 +703,23 @@ using (var scope = app.Services.CreateScope())
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_Department"" ON public.""Events"" (""Department"");",
             @"CREATE INDEX IF NOT EXISTS ""IX_Events_CandidateId"" ON public.""Events"" (""CandidateId"");",
             @"UPDATE public.""Events"" e SET ""Department"" = j.""Department"" FROM public.""JobVacancies"" j WHERE e.""JobVacancyId"" = j.""Id"" AND e.""Department"" IS NULL;",
-            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;"
+            @"UPDATE public.""Events"" SET ""Department"" = 'Engineering' WHERE ""Department"" IS NULL;",
+
+            // 12. ContactInquiries Table
+            @"CREATE TABLE IF NOT EXISTS public.""ContactInquiries"" (
+                ""Id"" uuid NOT NULL PRIMARY KEY,
+                ""Sender"" character varying(200) NOT NULL,
+                ""SenderType"" character varying(50) NOT NULL,
+                ""Organization"" character varying(200),
+                ""Email"" character varying(255) NOT NULL,
+                ""Subject"" character varying(300) NOT NULL,
+                ""Message"" text NOT NULL,
+                ""Status"" character varying(50) NOT NULL DEFAULT 'New',
+                ""Priority"" character varying(50) NOT NULL DEFAULT 'Normal',
+                ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+            );",
+            @"CREATE INDEX IF NOT EXISTS ""IX_ContactInquiries_CreatedAt"" ON public.""ContactInquiries"" (""CreatedAt"");",
+            @"CREATE INDEX IF NOT EXISTS ""IX_ContactInquiries_Status"" ON public.""ContactInquiries"" (""Status"");"
         };
 
         foreach (var ddl in ddlStatements)
@@ -703,6 +728,25 @@ using (var scope = app.Services.CreateScope())
         }
 
         logger.LogInformation("Database schema synchronized successfully (Companies, Users, JobVacancies, Candidate CV Tables verified in 'public').");
+
+        // Ensure Initial Super Admin Seed exists in PostgreSQL
+        var adminExists = dbContext.Users.Any(u => u.Role == "Admin" || u.Role == "Super_Admin");
+        if (!adminExists)
+        {
+            var adminUser = new User
+            {
+                Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                FullName = "Super Administrator",
+                Email = "admin@skillhub.internal",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("SkillHub@Admin2026"),
+                Role = "Admin",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            dbContext.Users.Add(adminUser);
+            dbContext.SaveChanges();
+            logger.LogInformation("Database Seed: Initial Super Admin user successfully created with email 'admin@skillhub.internal'.");
+        }
     }
     catch (Exception ex)
     {

@@ -44,8 +44,15 @@ namespace Skill_Hub_BackEnd.Services.Implementations
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // ── Phase 1: Startup warm-up (blocking until DB is responsive) ──────────
-            await WarmUpAsync(stoppingToken);
+            try
+            {
+                // ── Phase 1: Startup warm-up (blocking until DB is responsive) ──────────
+                await WarmUpAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return; // Graceful shutdown
+            }
 
             // ── Phase 2: Periodic keep-alive heartbeat ───────────────────────────────
             while (!stoppingToken.IsCancellationRequested)

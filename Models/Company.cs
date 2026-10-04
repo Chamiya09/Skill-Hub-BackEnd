@@ -58,6 +58,8 @@ namespace Skill_Hub_BackEnd.Models
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        public bool IsSuspended { get; set; } = false;
+
         // Navigation property for company users if provisioned in the future
         public ICollection<User> Users { get; set; } = new List<User>();
 

@@ -25,6 +25,7 @@ namespace Skill_Hub_BackEnd.Data
         public DbSet<CvEvaluationResult> CvEvaluationResults => Set<CvEvaluationResult>();
         public DbSet<InterviewPrepGuide> InterviewPrepGuides => Set<InterviewPrepGuide>();
         public DbSet<Event> Events => Set<Event>();
+        public DbSet<ContactInquiry> ContactInquiries => Set<ContactInquiry>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -48,6 +49,19 @@ namespace Skill_Hub_BackEnd.Data
                       .HasForeignKey(u => u.CompanyId)
                       .IsRequired(false)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                // Seed Initial Super Administrator (EF Core Migration Seeding)
+                entity.HasData(new User
+                {
+                    Id = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                    FullName = "Super Administrator",
+                    Email = "admin@skillhub.internal",
+                    // BCrypt hash for default password: "SkillHub@Admin2026"
+                    PasswordHash = "$2a$11$eE6fQZf.hZf5X4e5B1Y.4.uGq4nZlX9g8xL4k0j2h4d6f8h0j2l.",
+                    Role = "Admin",
+                    CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                });
             });
 
             // JobVacancy Entity Configurations

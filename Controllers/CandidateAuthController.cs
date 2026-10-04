@@ -135,55 +135,128 @@ namespace Skill_Hub_BackEnd.Controllers
         }
 
         /// <summary>
-        /// Retrieves the profile information for the authenticated Candidate.
-        /// Endpoint: GET /api/candidate/me
+        /// Retrieves the profile information for the authenticated Candidate or Company.
+        /// Endpoint: GET /api/candidate/me, GET /api/auth/me
         /// </summary>
         [HttpGet("me")]
+        [HttpGet("/api/auth/me")]
         [Authorize]
         [ProducesResponseType(typeof(UserResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetCurrentCandidate()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("id")?.Value;
 
-            if (!Guid.TryParse(userIdClaim, out var userId))
+            Guid userId = Guid.Empty;
+            if (!string.IsNullOrWhiteSpace(idClaim) && Guid.TryParse(idClaim, out var parsedId))
+            {
+                userId = parsedId;
+            }
+            else
+            {
+                var compClaim = User.FindFirst("companyId")?.Value;
+                if (!string.IsNullOrWhiteSpace(compClaim) && Guid.TryParse(compClaim, out var parsedCompanyId))
+                {
+                    userId = parsedCompanyId;
+                }
+                else
+                {
+                    var emailClaim = User.FindFirst(ClaimTypes.Email)?.Value
+                        ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+                        ?? User.FindFirst("email")?.Value;
+
+                    if (!string.IsNullOrWhiteSpace(emailClaim))
+                    {
+                        var u = await _dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == emailClaim.ToLower());
+                        if (u != null)
+                        {
+                            userId = u.Id;
+                        }
+                        else
+                        {
+                            var c = await _dbContext.Companies.FirstOrDefaultAsync(x => x.ContactEmail.ToLower() == emailClaim.ToLower());
+                            if (c != null)
+                            {
+                                userId = c.Id;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (userId == Guid.Empty)
             {
                 return Unauthorized(new { message = "Invalid or missing user identifier in token." });
             }
 
             var user = await _dbContext.Users.FindAsync(userId);
-            if (user == null)
+            if (user != null)
             {
-                return NotFound(new { message = "Candidate profile was not found in the database." });
+                var response = new UserResponseDto
+                {
+                    Id = user.Id,
+                    CompanyId = user.CompanyId,
+                    CompanyName = string.Empty,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    ContactEmail = user.Email,
+                    Role = user.Role,
+                    Headline = user.Headline,
+                    Phone = user.Phone,
+                    Location = user.Location,
+                    Experience = user.Experience,
+                    Availability = user.Availability,
+                    AvatarUrl = user.AvatarUrl,
+                    Website = user.Website,
+                    LinkedinUrl = user.LinkedinUrl,
+                    GithubUrl = user.GithubUrl,
+                    CreatedAt = user.CreatedAt,
+                    UpdatedAt = user.UpdatedAt,
+                    IsSuspended = user.IsSuspended
+                };
+
+                return Ok(response);
             }
 
-            var response = new UserResponseDto
+            var company = await _dbContext.Companies.FindAsync(userId);
+            if (company != null)
             {
-                Id = user.Id,
-                CompanyId = user.CompanyId,
-                CompanyName = string.Empty,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                FullName = user.FullName,
-                Email = user.Email,
-                ContactEmail = user.Email,
-                Role = user.Role,
-                Headline = user.Headline,
-                Phone = user.Phone,
-                Location = user.Location,
-                Experience = user.Experience,
-                Availability = user.Availability,
-                AvatarUrl = user.AvatarUrl,
-                Website = user.Website,
-                LinkedinUrl = user.LinkedinUrl,
-                GithubUrl = user.GithubUrl,
-                CreatedAt = user.CreatedAt,
-                UpdatedAt = user.UpdatedAt
-            };
+                var response = new UserResponseDto
+                {
+                    Id = company.Id,
+                    CompanyId = company.Id,
+                    CompanyName = company.CompanyName,
+                    AdminName = company.AdminName ?? company.CompanyName,
+                    FullName = company.AdminName ?? company.CompanyName,
+                    Email = company.ContactEmail,
+                    ContactEmail = company.ContactEmail,
+                    Role = "Company",
+                    Phone = company.Phone,
+                    CompanySize = company.CompanySize,
+                    FoundedYear = company.FoundedYear,
+                    LogoUrl = company.LogoUrl,
+                    Website = company.Website,
+                    LinkedinUrl = company.LinkedinUrl,
+                    TwitterUrl = company.TwitterUrl,
+                    GithubUrl = company.GithubUrl,
+                    Location = company.Location,
+                    Industry = company.Industry,
+                    About = company.About,
+                    CreatedAt = company.CreatedAt,
+                    UpdatedAt = company.UpdatedAt,
+                    IsSuspended = company.IsSuspended
+                };
 
-            return Ok(response);
+                return Ok(response);
+            }
+
+            return NotFound(new { message = "User or Company profile was not found in the database." });
         }
 
         /// <summary>
@@ -198,10 +271,33 @@ namespace Skill_Hub_BackEnd.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> UpdateCandidateProfile([FromBody] UpdateCandidateProfileDto dto)
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("id")?.Value;
 
-            if (!Guid.TryParse(userIdClaim, out var userId))
+            Guid userId = Guid.Empty;
+            if (!string.IsNullOrWhiteSpace(idClaim) && Guid.TryParse(idClaim, out var parsedId))
+            {
+                userId = parsedId;
+            }
+            else
+            {
+                var emailClaim = User.FindFirst(ClaimTypes.Email)?.Value
+                    ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+                    ?? User.FindFirst("email")?.Value;
+
+                if (!string.IsNullOrWhiteSpace(emailClaim))
+                {
+                    var u = await _dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == emailClaim.ToLower());
+                    if (u != null)
+                    {
+                        userId = u.Id;
+                    }
+                }
+            }
+
+            if (userId == Guid.Empty)
             {
                 return Unauthorized(new { message = "Invalid or missing user identifier in token." });
             }
@@ -296,7 +392,8 @@ namespace Skill_Hub_BackEnd.Controllers
                 LinkedinUrl = user.LinkedinUrl,
                 GithubUrl = user.GithubUrl,
                 CreatedAt = user.CreatedAt,
-                UpdatedAt = user.UpdatedAt
+                UpdatedAt = user.UpdatedAt,
+                IsSuspended = user.IsSuspended
             };
 
             return Ok(response);
