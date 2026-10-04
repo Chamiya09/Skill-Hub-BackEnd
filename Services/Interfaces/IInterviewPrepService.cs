@@ -47,6 +47,14 @@ namespace Skill_Hub_BackEnd.Services.Interfaces
             Guid candidateId,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Approves a generated interview preparation guide, making it active and visible in the candidate's Study Dashboard.
+        /// </summary>
+        Task<InterviewPrepGuideDto?> ApproveGuideAsync(
+            Guid id,
+            Guid candidateId,
+            CancellationToken cancellationToken = default);
+
 
         /// <summary>
         /// Checks whether the candidate is eligible for interview preparation.
