@@ -54,8 +54,10 @@ jobs:
         with:
           images: ${{ steps.prep.outputs.image }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=dev-latest,enable=${{ github.ref == 'refs/heads/dev' }}
             type=sha,prefix=sha-,format=short
+            type=sha,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
@@ -76,24 +78,24 @@ jobs:
 
       # Extract the generated short-SHA image tag for Azure deployment
       - name: Extract SHA image tag for deploy
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         id: deploy-tag
         run: |
           DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
           echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
 
-      # Authenticate with Azure using OpenID Connect (OIDC) - Only on push to main
+      # Authenticate with Azure using OpenID Connect (OIDC) - Strictly fetched from GitHub Secrets
       - name: Log in to Azure
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID || 'ac0d5ccf-2cdc-4e0e-80fb-9ecb3c860d57' }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID || '44e3cf94-19c9-4e32-96c3-14f5bf01391a' }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || '81a9b607-84ed-41c1-b95e-f9e8961416c1' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Deploy new revision to Azure Container Apps - Only on push to main
+      # Deploy new revision to Azure Container Apps
       - name: Deploy to Azure Container Apps
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         uses: azure/container-apps-deploy-action@v2
         with:
           containerAppName: ${{ env.CONTAINER_APP_NAME }}
