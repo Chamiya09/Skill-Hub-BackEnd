@@ -1,4 +1,4 @@
-name: Build & Publish Backend
+name: Build, Publish & Deploy Backend
 
 on:
   push:
@@ -15,29 +15,33 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  CONTAINER_APP_NAME: ca-skillhub-backend
+  RESOURCE_GROUP: TalentMatch-RG
 
 jobs:
-  build-and-push:
-    name: Build & Publish to GHCR
+  build-publish-deploy:
+    name: Build, Publish & Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
+      # 1. Checkout repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # GHCR requires strictly lowercase repository names (e.g., chamiya09/skill-hub-backend)
+      # 2. GHCR strictly requires lowercase repository names
       - name: Lowercase image name
         id: prep
         run: |
           echo "image=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
+      # 3. Setup Docker Buildx for modern caching and multi-platform support
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Authenticate to GHCR using the built-in GITHUB_TOKEN (granted 'packages: write' permission above)
+      # 4. Authenticate to GHCR using ONLY the built-in GITHUB_TOKEN (Zero PAT required)
       - name: Log in to GitHub Container Registry (GHCR)
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -46,6 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 5. Generate Docker tags & labels automatically based on git refs
       - name: Extract Docker metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -61,16 +66,45 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
 
+      # 6. Build and push Docker image to GHCR
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          # Only push to registry on pushes or workflow_dispatch, not during Pull Requests
+          # Push image on branch pushes and manual triggers; skip on PRs (validation only)
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # 7. Extract the short-SHA image tag for deterministic Azure deployment
+      - name: Extract SHA image tag for deploy
+        if: github.event_name != 'pull_request'
+        id: deploy-tag
+        run: |
+          DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
+          echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
+
+      # 8. Authenticate to Azure using Service Principal credentials
+      - name: Log in to Azure
+        if: github.event_name != 'pull_request'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 9. Deploy ONLY the new image to Azure Container Apps
+      # Note: No registry credentials configured since the GHCR package is public.
+      # 'az containerapp update --image' strictly updates the image and preserves ALL existing environment variables, secrets, and configurations.
+      - name: Deploy to Azure Container Apps (Preserve Environment Variables)
+        if: github.event_name != 'pull_request'
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            echo "Deploying image: ${{ steps.deploy-tag.outputs.image }}"
+            az containerapp update \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --image "${{ steps.deploy-tag.outputs.image }}"
