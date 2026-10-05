@@ -1,4 +1,4 @@
-name: Build, Publish & Deploy Backend
+name: Build & Publish Backend
 
 on:
   push:
@@ -15,12 +15,10 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  CONTAINER_APP_NAME: ca-skillhub-backend
-  RESOURCE_GROUP: TalentMatch-RG
 
 jobs:
-  build-publish-deploy:
-    name: Build, Publish & Deploy
+  build-and-push:
+    name: Build & Publish to GHCR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -76,29 +74,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Extract the generated short-SHA image tag for Azure deployment
-      - name: Extract SHA image tag for deploy
-        if: github.event_name != 'pull_request'
-        id: deploy-tag
-        run: |
-          DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
-          echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
-
-      # Authenticate with Azure using Service Principal credentials (AZURE_CREDENTIALS JSON)
-      - name: Log in to Azure
-        if: github.event_name != 'pull_request'
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      # Deploy ONLY the new container image to Azure Container Apps
-      # az containerapp update strictly preserves all existing environment variables, secrets, and configurations
-      - name: Deploy to Azure Container Apps (Preserve Environment Variables)
-        if: github.event_name != 'pull_request'
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            az containerapp update \
-              --name "${{ env.CONTAINER_APP_NAME }}" \
-              --resource-group "${{ env.RESOURCE_GROUP }}" \
-              --image "${{ steps.deploy-tag.outputs.image }}"
