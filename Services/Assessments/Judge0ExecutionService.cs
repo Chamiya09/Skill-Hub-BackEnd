@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -35,23 +36,54 @@ namespace Skill_Hub_BackEnd.Services.Assessments
             _logger = logger;
         }
 
+        private static readonly ConcurrentDictionary<string, int> LanguageCache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly SemaphoreSlim CacheLock = new(1, 1);
+        private static volatile bool _languagesLoaded = false;
+
         public (string runtimeLanguage, string version) ResolveRuntime(string language)
         {
             var normalized = (language ?? string.Empty).Trim().ToLowerInvariant();
             return normalized switch
             {
-                "python" or "py" or "python3" => ("python", "3.8.1"),
+                "python" or "py" or "python3" => ("python", "3.7.7"),
                 "javascript" or "js" or "node" => ("javascript", "12.14.0"),
                 "typescript" or "ts" => ("typescript", "3.7.4"),
-                "csharp" or "cs" or "c#" or "csharp.net" or "dotnet" => ("csharp", "Mono 6.6.0.161"),
-                "java" => ("java", "OpenJDK 13.0.1"),
-                "cpp" or "c++" => ("c++", "GCC 9.2.0"),
+                "csharp" or "cs" or "c#" or "csharp.net" or "dotnet" => ("csharp", ".NET Core 3.1.406"),
+                "java" => ("java", "OpenJDK 14.0.1"),
+                "cpp" or "c++" => ("c++", "Clang 10.0.1"),
                 "go" or "golang" => ("go", "1.13.5"),
-                _ => ("python", "3.8.1")
+                _ => ("python", "3.7.7")
             };
         }
 
+        /// <summary>
+        /// Default static fallback language mappings for Judge0 Extra CE v1.13.1.
+        /// In Extra CE: Python (Python for ML 3.7.7) is ID 10, Java is ID 4, C++ is ID 2, C# is ID 21, C is ID 1.
+        /// </summary>
         public static int GetJudge0LanguageId(string runtimeLang)
+        {
+            return (runtimeLang ?? string.Empty).Trim().ToLowerInvariant() switch
+            {
+                "python" or "py" or "python3" => 10,
+                "csharp" or "cs" or "c#" or "csharp.net" or "dotnet" => 21,
+                "java" => 4,
+                "cpp" or "c++" => 2,
+                "c" => 1,
+                "nim" => 9,
+                "visualbasic" or "vb" => 20,
+                "fsharp" or "f#" => 24,
+                // Fallbacks if CE standard languages are queried
+                "javascript" or "js" or "node" => 63,
+                "typescript" or "ts" => 74,
+                "go" or "golang" => 60,
+                _ => 10
+            };
+        }
+
+        /// <summary>
+        /// Static mapping for standard Judge0 CE (non-Extra).
+        /// </summary>
+        public static int GetStandardCeLanguageId(string runtimeLang)
         {
             return (runtimeLang ?? string.Empty).Trim().ToLowerInvariant() switch
             {
@@ -66,6 +98,140 @@ namespace Skill_Hub_BackEnd.Services.Assessments
             };
         }
 
+        /// <summary>
+        /// Dynamically resolves the Judge0 language ID by querying the /languages endpoint.
+        /// Caches resolved IDs and falls back to static Extra CE mappings if unreachable.
+        /// </summary>
+        public async Task<int> ResolveLanguageIdAsync(string runtimeLang, string judge0Url, CancellationToken cancellationToken)
+        {
+            var normalized = (runtimeLang ?? string.Empty).Trim().ToLowerInvariant();
+
+            if (LanguageCache.TryGetValue(normalized, out var cachedId))
+            {
+                return cachedId;
+            }
+
+            if (!_languagesLoaded)
+            {
+                await CacheLock.WaitAsync(cancellationToken);
+                try
+                {
+                    if (!_languagesLoaded)
+                    {
+                        await LoadLanguagesFromJudge0Async(judge0Url, cancellationToken);
+                        _languagesLoaded = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to dynamically query Judge0 /languages endpoint from {Url}. Using fallback language mappings.", judge0Url);
+                }
+                finally
+                {
+                    CacheLock.Release();
+                }
+            }
+
+            if (LanguageCache.TryGetValue(normalized, out var resolvedId))
+            {
+                return resolvedId;
+            }
+
+            var fallbackId = GetJudge0LanguageId(normalized);
+            _logger.LogInformation("Language '{Lang}' resolved via static Extra CE fallback to ID {Id}", runtimeLang, fallbackId);
+            return fallbackId;
+        }
+
+        private async Task LoadLanguagesFromJudge0Async(string judge0Url, CancellationToken cancellationToken)
+        {
+            var endpoint = $"{judge0Url}/languages";
+            using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(5000);
+
+            var resp = await _httpClient.SendAsync(req, timeoutCts.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Judge0 /languages returned HTTP {Status}", resp.StatusCode);
+                return;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+            var languages = JsonSerializer.Deserialize<List<Judge0LanguageItem>>(json, JsonOpts);
+            if (languages == null || languages.Count == 0) return;
+
+            var active = languages.Where(l => !l.IsArchived).ToList();
+
+            // Match Python (e.g., "Python for ML (3.7.7)" in Extra CE [ID: 10] or "Python (3.8.1)" in standard CE [ID: 71])
+            var py = active.FirstOrDefault(l => l.Name.Contains("Python", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("MPI", StringComparison.OrdinalIgnoreCase));
+            if (py != null)
+            {
+                LanguageCache["python"] = py.Id;
+                LanguageCache["py"] = py.Id;
+                LanguageCache["python3"] = py.Id;
+            }
+
+            // Match Java (e.g., "Java (OpenJDK 14.0.1)" in Extra CE [ID: 4] or "Java (OpenJDK 13.0.1)" in CE [ID: 62])
+            var java = active.FirstOrDefault(l => l.Name.StartsWith("Java", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("Test", StringComparison.OrdinalIgnoreCase));
+            if (java != null)
+            {
+                LanguageCache["java"] = java.Id;
+            }
+
+            // Match C# (e.g., "C# (.NET Core SDK 3.1.406)" in Extra CE [ID: 21] or "C# (Mono 6.6.0.161)" in CE [ID: 51])
+            var cs = active.FirstOrDefault(l => l.Name.StartsWith("C#", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("Test", StringComparison.OrdinalIgnoreCase));
+            if (cs != null)
+            {
+                LanguageCache["csharp"] = cs.Id;
+                LanguageCache["cs"] = cs.Id;
+                LanguageCache["c#"] = cs.Id;
+                LanguageCache["csharp.net"] = cs.Id;
+                LanguageCache["dotnet"] = cs.Id;
+            }
+
+            // Match C++ (e.g., "C++ (Clang 10.0.1)" in Extra CE [ID: 2] or "C++ (GCC 9.2.0)" in CE [ID: 54])
+            var cpp = active.FirstOrDefault(l => l.Name.StartsWith("C++", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("Test", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("MPI", StringComparison.OrdinalIgnoreCase));
+            if (cpp != null)
+            {
+                LanguageCache["cpp"] = cpp.Id;
+                LanguageCache["c++"] = cpp.Id;
+            }
+
+            // Match C (e.g., "C (Clang 10.0.1)" in Extra CE [ID: 1] or "C (GCC 9.2.0)" in CE [ID: 50])
+            var c = active.FirstOrDefault(l => l.Name.StartsWith("C (", StringComparison.OrdinalIgnoreCase) && !l.Name.Contains("MPI", StringComparison.OrdinalIgnoreCase));
+            if (c != null)
+            {
+                LanguageCache["c"] = c.Id;
+            }
+
+            // Match JavaScript / Node.js
+            var js = active.FirstOrDefault(l => l.Name.Contains("JavaScript", StringComparison.OrdinalIgnoreCase) || l.Name.Contains("Node.js", StringComparison.OrdinalIgnoreCase));
+            if (js != null)
+            {
+                LanguageCache["javascript"] = js.Id;
+                LanguageCache["js"] = js.Id;
+                LanguageCache["node"] = js.Id;
+            }
+
+            // Match TypeScript
+            var ts = active.FirstOrDefault(l => l.Name.Contains("TypeScript", StringComparison.OrdinalIgnoreCase));
+            if (ts != null)
+            {
+                LanguageCache["typescript"] = ts.Id;
+                LanguageCache["ts"] = ts.Id;
+            }
+
+            // Match Go
+            var go = active.FirstOrDefault(l => l.Name.StartsWith("Go", StringComparison.OrdinalIgnoreCase));
+            if (go != null)
+            {
+                LanguageCache["go"] = go.Id;
+                LanguageCache["golang"] = go.Id;
+            }
+
+            _logger.LogInformation("Successfully resolved Judge0 languages dynamically ({Count} active languages found).", active.Count);
+        }
+
         public async Task<PistonExecuteResult> ExecuteCodeAsync(
             string code,
             string language,
@@ -74,10 +240,6 @@ namespace Skill_Hub_BackEnd.Services.Assessments
         {
             var executionId = Guid.NewGuid().ToString("N");
             var (runtimeLang, version) = ResolveRuntime(language);
-            var langId = GetJudge0LanguageId(runtimeLang);
-
-            // Preprocess and smartly wrap snippet code if bare statements were submitted
-            var preprocessedCode = PreprocessCodeForJudge0(code, runtimeLang);
 
             var judge0Url = _configuration["ExecutionEngine:Judge0Url"];
             if (string.IsNullOrWhiteSpace(judge0Url))
@@ -86,7 +248,17 @@ namespace Skill_Hub_BackEnd.Services.Assessments
             }
             judge0Url = judge0Url.TrimEnd('/');
 
+            var langId = await ResolveLanguageIdAsync(runtimeLang, judge0Url, cancellationToken);
+
+            // Preprocess and smartly wrap snippet code if bare statements were submitted
+            var preprocessedCode = PreprocessCodeForJudge0(code, runtimeLang);
+
             var submissionEndpoint = $"{judge0Url}/submissions?base64_encoded=false&wait=true";
+
+            // Memory limit: default to 256,000 KB (256 MB) to stay well under Judge0's 512,000 KB ceiling.
+            // If configured as <= 0 or null, set to null to omit the field and let Judge0 use its internal default (128 MB).
+            var configuredMemLimit = _configuration.GetValue<int?>("ExecutionEngine:MemoryLimit") ?? 256000;
+            int? memoryLimitPayload = configuredMemLimit > 0 ? configuredMemLimit : null;
 
             var payload = new Judge0SubmissionRequest
             {
@@ -95,7 +267,7 @@ namespace Skill_Hub_BackEnd.Services.Assessments
                 Stdin = stdin ?? string.Empty,
                 CpuTimeLimit = 5.0f,
                 WallTimeLimit = 15.0f,
-                MemoryLimit = 2048000
+                MemoryLimit = memoryLimitPayload
             };
 
             var jsonContent = JsonSerializer.Serialize(payload, JsonOpts);
@@ -384,7 +556,19 @@ int main() {{
             public float WallTimeLimit { get; set; } = 15.0f;
 
             [JsonPropertyName("memory_limit")]
-            public int MemoryLimit { get; set; } = 2048000;
+            public int? MemoryLimit { get; set; } = 256000;
+        }
+
+        private sealed class Judge0LanguageItem
+        {
+            [JsonPropertyName("id")]
+            public int Id { get; set; }
+
+            [JsonPropertyName("name")]
+            public string Name { get; set; } = string.Empty;
+
+            [JsonPropertyName("is_archived")]
+            public bool IsArchived { get; set; }
         }
 
         private sealed class Judge0SubmissionResponse
