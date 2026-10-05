@@ -89,14 +89,14 @@ jobs:
           DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
           echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
 
-      # 8. Authenticate to Azure using OpenID Connect (OIDC) - Passwordless (No secrets/passwords required)
+      # 8. Authenticate to Azure using OpenID Connect (OIDC) via GitHub Secrets
       - name: Log in to Azure (OIDC)
         if: github.event_name != 'pull_request'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID || 'ac0d5ccf-2cdc-4e0e-80fb-9ecb3c860d57' }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID || '44e3cf94-19c9-4e32-96c3-14f5bf01391a' }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || '81a9b607-84ed-41c1-b95e-f9e8961416c1' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # 9. Deploy ONLY the new image to Azure Container Apps
       # Note: No registry credentials configured since the GHCR package is public.
