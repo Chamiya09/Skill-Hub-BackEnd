@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # Required for Azure OIDC authentication
+      id-token: write # Required for Azure OIDC authentication if used
 
     steps:
       - name: Checkout repository
@@ -40,13 +40,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Authenticate to GHCR using Personal Access Token (PAT) fetched from GitHub Secrets
       - name: Log in to GitHub Container Registry (GHCR)
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GH_PAT }}
 
       - name: Extract Docker metadata (tags, labels)
         id: meta
@@ -84,8 +85,8 @@ jobs:
           DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
           echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
 
-      # Authenticate with Azure - Strictly fetched from GitHub Secrets
-      # Supports either AZURE_CREDENTIALS (Service Principal JSON) or OIDC secrets (AZURE_CLIENT_ID, etc.)
+      # Authenticate with Azure using secrets (Supports AZURE_CREDENTIALS or OIDC secrets)
+      # Strictly dynamically fetched from GitHub Secrets - Zero hardcoding
       - name: Log in to Azure
         if: github.event_name != 'pull_request'
         uses: azure/login@v2
@@ -95,11 +96,14 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Deploy new revision to Azure Container Apps
-      - name: Deploy to Azure Container Apps
+      # Deploy ONLY the new container image to Azure Container Apps
+      # az containerapp update strictly preserves all existing environment variables, secrets, and configurations
+      - name: Deploy to Azure Container Apps (Preserve Environment Variables)
         if: github.event_name != 'pull_request'
-        uses: azure/container-apps-deploy-action@v2
+        uses: azure/CLI@v2
         with:
-          containerAppName: ${{ env.CONTAINER_APP_NAME }}
-          resourceGroup: ${{ env.RESOURCE_GROUP }}
-          imageToDeploy: ${{ steps.deploy-tag.outputs.image }}
+          inlineScript: |
+            az containerapp update \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --image "${{ steps.deploy-tag.outputs.image }}"
