@@ -81,17 +81,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 7. Extract the short-SHA image tag for deterministic Azure deployment
+      # 7. Extract the short-SHA image tag for deterministic Azure deployment (Main branch only)
       - name: Extract SHA image tag for deploy
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         id: deploy-tag
         run: |
           DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
           echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
 
-      # 8. Authenticate to Azure using OpenID Connect (OIDC) via GitHub Secrets
+      # 8. Authenticate to Azure using OpenID Connect (OIDC) - Runs on main branch where OIDC credential is registered
       - name: Log in to Azure (OIDC)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -102,7 +102,7 @@ jobs:
       # Note: No registry credentials configured since the GHCR package is public.
       # 'az containerapp update --image' strictly updates the image and preserves ALL existing environment variables, secrets, and configurations.
       - name: Deploy to Azure Container Apps (Preserve Environment Variables)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: azure/CLI@v2
         with:
           inlineScript: |
