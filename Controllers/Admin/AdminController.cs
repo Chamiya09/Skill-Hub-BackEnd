@@ -213,7 +213,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Role = "CANDIDATE",
                             Headline = "Senior Full-Stack Engineer",
                             Location = "San Francisco, CA",
-                            AvatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+                            AvatarUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-3)
                         },
                         new User
@@ -225,7 +225,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Role = "CANDIDATE",
                             Headline = "Lead AI / ML Researcher",
                             Location = "Boston, MA",
-                            AvatarUrl = "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=120&auto=format&fit=crop&q=80",
+                            AvatarUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-2)
                         },
                         new User
@@ -237,7 +237,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Role = "CANDIDATE",
                             Headline = "Staff DevOps & Cloud Architect",
                             Location = "Seattle, WA",
-                            AvatarUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
+                            AvatarUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-1)
                         },
                         new User
@@ -249,7 +249,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Role = "CANDIDATE",
                             Headline = "Senior UI/UX & Frontend Engineer",
                             Location = "Austin, TX",
-                            AvatarUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80",
+                            AvatarUrl = null,
                             CreatedAt = DateTime.UtcNow.AddDays(-14)
                         }
                     };
@@ -299,7 +299,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                     {
                         Id = idStr,
                         Name = c.FullName,
-                        Avatar = !string.IsNullOrWhiteSpace(c.AvatarUrl) ? c.AvatarUrl : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+                        Avatar = !string.IsNullOrWhiteSpace(c.AvatarUrl) && !c.AvatarUrl.Contains("unsplash.com") ? c.AvatarUrl : null,
                         Role = !string.IsNullOrWhiteSpace(c.Headline) ? c.Headline : "Full-Stack Engineer",
                         Email = c.Email,
                         TopSkills = skills,
@@ -398,7 +398,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Location = "San Francisco, CA",
                             Website = "https://stripe.com",
                             CompanySize = "Enterprise",
-                            LogoUrl = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=120&auto=format&fit=crop&q=80",
+                            LogoUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-18)
                         },
                         new Company
@@ -411,7 +411,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Location = "San Francisco, CA",
                             Website = "https://anthropic.com",
                             CompanySize = "Enterprise",
-                            LogoUrl = "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=120&auto=format&fit=crop&q=80",
+                            LogoUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-12)
                         },
                         new Company
@@ -424,7 +424,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Location = "New York, NY",
                             Website = "https://linear.app",
                             CompanySize = "ScaleUp",
-                            LogoUrl = "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=120&auto=format&fit=crop&q=80",
+                            LogoUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-6)
                         },
                         new Company
@@ -437,7 +437,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Location = "San Francisco, CA",
                             Website = "https://databricks.com",
                             CompanySize = "Enterprise",
-                            LogoUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&auto=format&fit=crop&q=80",
+                            LogoUrl = null,
                             CreatedAt = DateTime.UtcNow.AddMonths(-14)
                         },
                         new Company
@@ -450,7 +450,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                             Location = "Austin, TX",
                             Website = "https://nexusquantum.io",
                             CompanySize = "Startup",
-                            LogoUrl = "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=120&auto=format&fit=crop&q=80",
+                            LogoUrl = null,
                             CreatedAt = DateTime.UtcNow.AddDays(-20)
                         }
                     };
@@ -496,7 +496,7 @@ namespace Skill_Hub_BackEnd.Controllers.Admin
                     {
                         Id = idStr,
                         Name = c.CompanyName,
-                        Logo = !string.IsNullOrWhiteSpace(c.LogoUrl) ? c.LogoUrl : "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=120&auto=format&fit=crop&q=80",
+                        Logo = !string.IsNullOrWhiteSpace(c.LogoUrl) && !c.LogoUrl.Contains("unsplash.com") ? c.LogoUrl : null,
                         Industry = !string.IsNullOrWhiteSpace(c.Industry) ? c.Industry : "Technology & Software",
                         ContactEmail = c.ContactEmail,
                         Website = !string.IsNullOrWhiteSpace(c.Website) ? c.Website : "https://skillhub.io",

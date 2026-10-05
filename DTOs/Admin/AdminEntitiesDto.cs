@@ -4,7 +4,7 @@ namespace Skill_Hub_BackEnd.DTOs.Admin
     {
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
-        public string Avatar { get; set; } = string.Empty;
+        public string? Avatar { get; set; }
         public string Role { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public List<string> TopSkills { get; set; } = new();
@@ -17,7 +17,7 @@ namespace Skill_Hub_BackEnd.DTOs.Admin
     {
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
-        public string Logo { get; set; } = string.Empty;
+        public string? Logo { get; set; }
         public string Industry { get; set; } = string.Empty;
         public string ContactEmail { get; set; } = string.Empty;
         public string Website { get; set; } = string.Empty;
