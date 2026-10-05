@@ -315,6 +315,14 @@ namespace Skill_Hub_BackEnd.Services.Assessments
                 var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 var submissionResult = JsonSerializer.Deserialize<Judge0SubmissionResponse>(responseContent, JsonOpts);
 
+                // If Judge0 returns asynchronously (in queue / processing or status is not yet evaluated), poll until completion
+                if (submissionResult != null && !string.IsNullOrWhiteSpace(submissionResult.Token) &&
+                    (submissionResult.Status == null || submissionResult.Status.Id <= 2))
+                {
+                    submissionResult = await PollSubmissionResultAsync(submissionResult.Token, judge0Url, stopwatch, cancellationToken)
+                        ?? submissionResult;
+                }
+
                 stopwatch.Stop();
 
                 return MapJudge0ResponseToPistonResult(submissionResult, stopwatch.ElapsedMilliseconds);
@@ -444,6 +452,40 @@ int main() {{
             return string.Join(Environment.NewLine, lines.Select(l => prefix + l));
         }
 
+        private async Task<Judge0SubmissionResponse?> PollSubmissionResultAsync(
+            string token,
+            string judge0Url,
+            Stopwatch stopwatch,
+            CancellationToken cancellationToken)
+        {
+            var pollEndpoint = $"{judge0Url}/submissions/{token}?base64_encoded=false";
+
+            while (stopwatch.ElapsedMilliseconds < DefaultExecutionTimeoutMs && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(400, cancellationToken);
+
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, pollEndpoint);
+                    var resp = await _httpClient.SendAsync(req, cancellationToken);
+                    if (!resp.IsSuccessStatusCode) continue;
+
+                    var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+                    var polled = JsonSerializer.Deserialize<Judge0SubmissionResponse>(json, JsonOpts);
+                    if (polled?.Status != null && polled.Status.Id > 2)
+                    {
+                        return polled;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning("Transient error polling Judge0 submission {Token}: {Message}", token, ex.Message);
+                }
+            }
+
+            return null;
+        }
+
         private static PistonExecuteResult MapJudge0ResponseToPistonResult(
             Judge0SubmissionResponse? response,
             long fallbackElapsedMs)
@@ -453,7 +495,8 @@ int main() {{
                 return new PistonExecuteResult
                 {
                     IsError = true,
-                    ErrorMessage = "Null response received from execution engine."
+                    ErrorMessage = "No response received from Judge0 execution engine (submission timed out).",
+                    Stderr = "Execution timed out waiting for Judge0 sandbox response."
                 };
             }
 
@@ -465,7 +508,11 @@ int main() {{
             }
 
             var statusId = response.Status?.Id ?? 0;
-            var statusDesc = response.Status?.Description ?? "Unknown";
+            var statusDesc = !string.IsNullOrWhiteSpace(response.Status?.Description)
+                ? response.Status.Description
+                : (!string.IsNullOrWhiteSpace(response.Message)
+                    ? response.Message
+                    : (!string.IsNullOrWhiteSpace(response.Error) ? response.Error : "Execution completed without status description."));
 
             // Status 3: Accepted
             if (statusId == 3)
@@ -510,7 +557,10 @@ int main() {{
             // Status 6: Compilation Error
             if (statusId == 6)
             {
-                var compileOutput = response.CompileOutput ?? response.Stderr ?? "Compilation failed.";
+                var compileOutput = !string.IsNullOrWhiteSpace(response.CompileOutput)
+                    ? response.CompileOutput
+                    : (!string.IsNullOrWhiteSpace(response.Stderr) ? response.Stderr : "Compilation failed.");
+
                 return new PistonExecuteResult
                 {
                     CompileOutput = compileOutput,
@@ -522,10 +572,16 @@ int main() {{
                 };
             }
 
-            // Status 7..12: Runtime Errors (NZEC, SIGSEGV, SIGXFSZ, etc.)
+            // Status 7..14: Runtime Errors (NZEC, SIGSEGV, SIGXFSZ, etc.) or Incomplete status
             var errText = !string.IsNullOrWhiteSpace(response.Stderr)
                 ? response.Stderr
-                : (!string.IsNullOrWhiteSpace(response.Message) ? response.Message : statusDesc);
+                : (!string.IsNullOrWhiteSpace(response.CompileOutput)
+                    ? response.CompileOutput
+                    : (!string.IsNullOrWhiteSpace(response.Message)
+                        ? response.Message
+                        : (!string.IsNullOrWhiteSpace(response.Error)
+                            ? response.Error
+                            : (statusId > 0 ? statusDesc : "Process completed with error code but no standard error output."))));
 
             return new PistonExecuteResult
             {
@@ -533,7 +589,7 @@ int main() {{
                 Stderr = errText,
                 ExitCode = response.ExitCode ?? 1,
                 IsError = true,
-                ErrorMessage = response.Message ?? statusDesc,
+                ErrorMessage = response.Message ?? response.Error ?? statusDesc,
                 ExecutionTimeMs = elapsedMs
             };
         }
@@ -584,6 +640,9 @@ int main() {{
 
             [JsonPropertyName("message")]
             public string? Message { get; set; }
+
+            [JsonPropertyName("error")]
+            public string? Error { get; set; }
 
             [JsonPropertyName("exit_code")]
             public int? ExitCode { get; set; }
