@@ -25,7 +25,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # Required for Azure OIDC authentication if used
 
     steps:
       - name: Checkout repository
@@ -85,16 +84,12 @@ jobs:
           DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
           echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
 
-      # Authenticate with Azure using secrets (Supports AZURE_CREDENTIALS or OIDC secrets)
-      # Strictly dynamically fetched from GitHub Secrets - Zero hardcoding
+      # Authenticate with Azure using Service Principal credentials (AZURE_CREDENTIALS JSON)
       - name: Log in to Azure
         if: github.event_name != 'pull_request'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # Deploy ONLY the new container image to Azure Container Apps
       # az containerapp update strictly preserves all existing environment variables, secrets, and configurations
