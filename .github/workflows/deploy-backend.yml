@@ -1,4 +1,4 @@
-name: Build and Push Docker Image to GHCR
+name: Build, Publish & Deploy Backend
 
 on:
   push:
@@ -15,14 +15,17 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  CONTAINER_APP_NAME: ca-skillhub-backend
+  RESOURCE_GROUP: TalentMatch-RG
 
 jobs:
-  build-and-push:
-    name: Build & Publish Container
+  build-publish-deploy:
+    name: Build, Publish & Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      id-token: write # Required for Azure OIDC authentication
 
     steps:
       - name: Checkout repository
@@ -64,9 +67,35 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          # Only push to registry on pushes to main or tags, not during Pull Requests
+          # Only push to registry on pushes or workflow_dispatch, not during Pull Requests
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Extract the generated short-SHA image tag for Azure deployment
+      - name: Extract SHA image tag for deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: deploy-tag
+        run: |
+          DEPLOY_IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | grep ':sha-' | head -n 1)
+          echo "image=${DEPLOY_IMAGE}" >> $GITHUB_OUTPUT
+
+      # Authenticate with Azure using OpenID Connect (OIDC) - Only on push to main
+      - name: Log in to Azure
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID || 'ac0d5ccf-2cdc-4e0e-80fb-9ecb3c860d57' }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID || '44e3cf94-19c9-4e32-96c3-14f5bf01391a' }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || '81a9b607-84ed-41c1-b95e-f9e8961416c1' }}
+
+      # Deploy new revision to Azure Container Apps - Only on push to main
+      - name: Deploy to Azure Container Apps
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          imageToDeploy: ${{ steps.deploy-tag.outputs.image }}
