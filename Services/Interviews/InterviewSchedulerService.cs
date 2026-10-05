@@ -209,9 +209,6 @@ namespace Skill_Hub_BackEnd.Services.Interviews
         {
             ArgumentNullException.ThrowIfNull(dto);
 
-            var baseUrl = _configuration["AiAgent:BaseUrl"] ?? "http://127.0.0.1:8000";
-            var url = $"{baseUrl.TrimEnd('/')}/api/interview-scheduler/generate-schedule";
-
             if (!companyId.HasValue || companyId.Value == Guid.Empty)
             {
                 var vacancy = await _dbContext.JobVacancies
@@ -222,6 +219,11 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                     companyId = vacancy.CompanyId;
                 }
             }
+
+            ScheduleProposalResponseDto? proposal = null;
+
+            var baseUrl = _configuration["AiAgent:BaseUrl"] ?? "http://127.0.0.1:8000";
+            var url = $"{baseUrl.TrimEnd('/')}/api/interview-scheduler/generate-schedule";
 
             var pythonRequest = new
             {
@@ -238,31 +240,247 @@ namespace Skill_Hub_BackEnd.Services.Interviews
 
             _logger.LogInformation("Calling Python AI Interview Scheduler at: {Url} for Job ID: {JobId}", url, dto.JobVacancyId);
 
-            HttpResponseMessage response;
             try
             {
-                response = await _httpClient.PostAsJsonAsync(url, pythonRequest, cancellationToken);
+                var response = await _httpClient.PostAsJsonAsync(url, pythonRequest, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    proposal = await response.Content.ReadFromJsonAsync<ScheduleProposalResponseDto>(JsonOpts, cancellationToken);
+                }
+                else
+                {
+                    var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogWarning("AI Agent returned non-success code ({StatusCode}): {Body}", response.StatusCode, errorBody);
+                }
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "Could not reach Python AI Agent at {Url}. Is the service running?", url);
-                throw new InvalidOperationException($"Unable to connect to the AI Agent microservice at '{url}'. Ensure the Python FastAPI server is running on port 8000.", ex);
+                _logger.LogWarning(ex, "Could not reach Python AI Agent at {Url}, will use resilient scheduler fallback.", url);
             }
 
-            if (!response.IsSuccessStatusCode)
+            // If the AI Agent successfully scheduled candidates, return the proposal
+            if (proposal != null && proposal.ProposedSlots != null && proposal.ProposedSlots.Count > 0)
             {
-                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("AI Agent returned error ({StatusCode}): {Body}", response.StatusCode, errorBody);
-                throw new InvalidOperationException($"AI Agent error: {errorBody}");
+                return proposal;
             }
 
-            var proposal = await response.Content.ReadFromJsonAsync<ScheduleProposalResponseDto>(JsonOpts, cancellationToken);
-            return proposal ?? new ScheduleProposalResponseDto
+            // Resilient Fallback: If AI Agent returned 0 slots (e.g. cross-region network block or 0 candidates fetched by Python),
+            // check database directly for eligible interview candidates and generate clash-free slots deterministically.
+            _logger.LogInformation("AI Agent returned 0 proposed slots for Job ID: {JobId}. Executing resilient deterministic scheduler fallback.", dto.JobVacancyId);
+            return await GenerateDeterministicScheduleProposalAsync(dto, companyId, cancellationToken);
+        }
+
+        private async Task<ScheduleProposalResponseDto> GenerateDeterministicScheduleProposalAsync(
+            GenerateScheduleRequestDto dto,
+            Guid? companyId,
+            CancellationToken cancellationToken)
+        {
+            var candResponse = await GetCandidatesForInterviewAsync(dto.JobVacancyId, cancellationToken);
+            var candidates = candResponse.Candidates ?? new List<InterviewCandidateDto>();
+            var jobTitle = !string.IsNullOrWhiteSpace(candResponse.JobTitle) ? candResponse.JobTitle : "Interview Schedule";
+
+            if (candidates.Count == 0)
+            {
+                return new ScheduleProposalResponseDto
+                {
+                    JobVacancyId = dto.JobVacancyId,
+                    JobTitle = jobTitle,
+                    ProposedSlots = new List<ProposedSlotDto>(),
+                    UnscheduledCandidates = new List<UnscheduledCandidateDto>(),
+                    Summary = new ScheduleSummaryDto
+                    {
+                        TotalCandidates = 0,
+                        ScheduledCount = 0,
+                        UnscheduledCount = 0,
+                        OriginalDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
+                        EffectiveDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
+                        AssumptionsMade = new List<string> { "No candidates are shortlisted, reviewed, or selected for interview for this vacancy." },
+                        AiValidationNotes = new List<string> { "Zero candidates available to schedule." }
+                    },
+                    IsDraft = true
+                };
+            }
+
+            var duration = dto.InterviewDurationMinutes > 0 ? dto.InterviewDurationMinutes : 30;
+            var buffer = dto.BufferMinutes >= 0 ? dto.BufferMinutes : 10;
+            var tracks = dto.ParallelTracks > 0 ? dto.ParallelTracks : 2;
+            var slotInterval = duration + buffer;
+
+            var workStartStr = string.IsNullOrWhiteSpace(dto.WorkingHoursStart) ? "09:00" : dto.WorkingHoursStart;
+            var workEndStr = string.IsNullOrWhiteSpace(dto.WorkingHoursEnd) ? "17:00" : dto.WorkingHoursEnd;
+
+            var workStartMin = TimeToMinutes(workStartStr);
+            var workEndMin = TimeToMinutes(workEndStr);
+
+            // Fetch blocked slots (company events + holidays) up to 14 days forward extension
+            var maxForwardDays = 14;
+            var extendedEndDate = dto.EndDate.AddDays(maxForwardDays);
+            var blockedResp = await GetBlockedSlotsAsync(companyId, dto.StartDate, extendedEndDate, cancellationToken);
+            var blockedList = blockedResp.BlockedSlots ?? new List<BlockedSlotDto>();
+
+            // Group blocked slots by Date (YYYY-MM-DD)
+            var blockedByDate = blockedList.GroupBy(b => b.Date).ToDictionary(g => g.Key, g => g.ToList());
+
+            var proposedSlots = new List<ProposedSlotDto>();
+            var candidateQueue = new Queue<InterviewCandidateDto>(candidates);
+            var slotIndex = 1;
+
+            var currentDate = dto.StartDate;
+            var effectiveEndDate = dto.StartDate;
+            var isForwardExtended = false;
+
+            while (candidateQueue.Count > 0 && currentDate <= extendedEndDate)
+            {
+                // Skip weekends (Saturday and Sunday)
+                if (currentDate.DayOfWeek == DayOfWeek.Saturday || currentDate.DayOfWeek == DayOfWeek.Sunday)
+                {
+                    currentDate = currentDate.AddDays(1);
+                    continue;
+                }
+
+                var dateStr = currentDate.ToString("yyyy-MM-dd");
+                blockedByDate.TryGetValue(dateStr, out var daysBlocked);
+                daysBlocked ??= new List<BlockedSlotDto>();
+
+                // Check for full day holiday or block
+                var isFullDayBlocked = daysBlocked.Any(b =>
+                {
+                    var bStart = TimeToMinutes(b.StartTime);
+                    var bEnd = TimeToMinutes(b.EndTime);
+                    return bStart <= workStartMin && bEnd >= workEndMin;
+                });
+
+                if (isFullDayBlocked)
+                {
+                    currentDate = currentDate.AddDays(1);
+                    continue;
+                }
+
+                var isCurrentExtended = currentDate > dto.EndDate;
+                if (isCurrentExtended) isForwardExtended = true;
+
+                // Iterate time slots from workStartMin to workEndMin
+                for (var slotStart = workStartMin; slotStart + duration <= workEndMin && candidateQueue.Count > 0; slotStart += slotInterval)
+                {
+                    var slotEnd = slotStart + duration;
+
+                    // Check if this time slot overlaps with any blocked company event/holiday
+                    var hasTimeClash = daysBlocked.Any(b =>
+                    {
+                        var bStart = TimeToMinutes(b.StartTime);
+                        var bEnd = TimeToMinutes(b.EndTime);
+                        return Math.Max(slotStart, bStart) < Math.Min(slotEnd, bEnd);
+                    });
+
+                    if (hasTimeClash)
+                        continue;
+
+                    // Assign across parallel tracks
+                    for (var track = 1; track <= tracks && candidateQueue.Count > 0; track++)
+                    {
+                        var cand = candidateQueue.Dequeue();
+                        effectiveEndDate = currentDate;
+
+                        var trackName = GetTrackRoomName(track);
+                        proposedSlots.Add(new ProposedSlotDto
+                        {
+                            SlotId = $"slot-{slotIndex++}",
+                            CandidateId = cand.CandidateId,
+                            CandidateName = cand.FullName,
+                            CandidateEmail = cand.Email,
+                            Date = dateStr,
+                            StartTime = MinutesToTime(slotStart),
+                            EndTime = MinutesToTime(slotEnd),
+                            TrackNumber = track,
+                            TrackName = trackName,
+                            IsExtendedSearch = isCurrentExtended
+                        });
+                    }
+                }
+
+                currentDate = currentDate.AddDays(1);
+            }
+
+            var unscheduled = candidateQueue.Select(c => new UnscheduledCandidateDto
+            {
+                CandidateId = c.CandidateId,
+                CandidateName = c.FullName,
+                CandidateEmail = c.Email,
+                Reason = "No available slots within scheduled window (including 14-day forward extension) without conflicting with existing calendar appointments."
+            }).ToList();
+
+            var forwardDays = isForwardExtended ? (effectiveEndDate.DayNumber - dto.EndDate.DayNumber) : 0;
+            if (forwardDays < 0) forwardDays = 0;
+
+            var summary = new ScheduleSummaryDto
+            {
+                TotalCandidates = candidates.Count,
+                ScheduledCount = proposedSlots.Count,
+                UnscheduledCount = unscheduled.Count,
+                OriginalDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
+                EffectiveDateRange = $"{dto.StartDate:yyyy-MM-dd} to {effectiveEndDate:yyyy-MM-dd}",
+                ForwardDaysExtended = forwardDays,
+                TracksUtilized = Math.Min(tracks, proposedSlots.Count),
+                AssumptionsMade = new List<string>
+                {
+                    $"Working hours set from {workStartStr} to {workEndStr} with a {buffer}-minute buffer.",
+                    $"Utilized {tracks} concurrent parallel track(s) for interview panels.",
+                    $"Standard session duration of {duration} minutes per candidate.",
+                    "Weekends (Saturday & Sunday) automatically excluded."
+                },
+                AiValidationNotes = new List<string>
+                {
+                    $"Generated {proposedSlots.Count} clash-free interview session(s) across {Math.Min(tracks, Math.Max(1, proposedSlots.Count))} track(s).",
+                    "Validated against company events and national holidays to prevent double-booking.",
+                    isForwardExtended
+                        ? $"Forward search activated: extended window by {forwardDays} day(s) to accommodate candidates."
+                        : "All candidates scheduled within the target date range without forward search."
+                }
+            };
+
+            return new ScheduleProposalResponseDto
             {
                 JobVacancyId = dto.JobVacancyId,
-                JobTitle = "Interview Schedule",
-                Summary = new ScheduleSummaryDto { AssumptionsMade = new List<string> { "Empty proposal returned from AI agent" } }
+                JobTitle = jobTitle,
+                ProposedSlots = proposedSlots,
+                UnscheduledCandidates = unscheduled,
+                Summary = summary,
+                IsDraft = true
             };
+        }
+
+        private static int TimeToMinutes(string timeStr)
+        {
+            if (string.IsNullOrWhiteSpace(timeStr)) return 540; // 09:00
+            var norm = NormalizeTime(timeStr);
+            var parts = norm.Split(':');
+            if (parts.Length >= 2 && int.TryParse(parts[0], out var h) && int.TryParse(parts[1], out var m))
+            {
+                return h * 60 + m;
+            }
+            return 540;
+        }
+
+        private static string MinutesToTime(int totalMinutes)
+        {
+            var h = totalMinutes / 60;
+            var m = totalMinutes % 60;
+            return $"{h:D2}:{m:D2}";
+        }
+
+        private static string GetTrackRoomName(int trackNumber)
+        {
+            var roomNames = new[]
+            {
+                "Room A (Panel 1)",
+                "Room B (Panel 2)",
+                "Room C (Panel 3)",
+                "Room D (Executive Panel)",
+                "Room E (Technical Lab)",
+                "Room F (Virtual Room)"
+            };
+            var idx = (trackNumber - 1) % roomNames.Length;
+            return $"Track {trackNumber}: {roomNames[idx]}";
         }
 
         public async Task<ConfirmInterviewScheduleResultDto> ConfirmInterviewScheduleAsync(
