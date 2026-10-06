@@ -157,8 +157,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        // React/Vite and Flutter Web use different development ports. Trust
-        // localhost only, regardless of its temporary development port.
+        // Allow local development clients as well as Azure cloud deployments
         policy.SetIsOriginAllowed(origin =>
               {
                   if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
@@ -168,7 +167,9 @@ builder.Services.AddCors(options =>
 
                   return uri.Scheme is "http" or "https" &&
                          (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                          uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+                          uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                          uri.Host.EndsWith(".azurewebsites.net", StringComparison.OrdinalIgnoreCase) ||
+                          uri.Host.EndsWith(".azurecontainerapps.io", StringComparison.OrdinalIgnoreCase));
               })
               .AllowAnyHeader()
               .AllowAnyMethod()
