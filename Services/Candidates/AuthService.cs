@@ -214,7 +214,7 @@ namespace Skill_Hub_BackEnd.Services.Candidates
             // Find Candidate in Users table
             var candidate = await _dbContext.Users
                 .Include(u => u.Company)
-                .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && (u.Role == "CANDIDATE" || u.Role == "Candidate"));
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
 
             if (candidate == null || !BCrypt.Net.BCrypt.Verify(dto.Password, candidate.PasswordHash))
             {

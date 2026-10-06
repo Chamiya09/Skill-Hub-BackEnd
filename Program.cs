@@ -42,8 +42,11 @@ builder.Logging.AddDebug();
 //   • EnableRetryOnFailure with a higher maxRetryCount covers NeonDB's 500ms–3s
 //     serverless cold-start wakeup window where connections time out transiently.
 //   • CommandTimeout(90) gives long-running AI-pipeline EF queries enough headroom.
+var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = NormalizePostgresConnectionString(rawConnectionString);
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsqlOptions =>
+    options.UseNpgsql(connectionString, npgsqlOptions =>
     {
         npgsqlOptions.EnableRetryOnFailure(
             maxRetryCount: 8,
@@ -51,6 +54,46 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
             errorCodesToAdd: null);
         npgsqlOptions.CommandTimeout(90);
     }));
+
+static string NormalizePostgresConnectionString(string? raw)
+{
+    if (string.IsNullOrWhiteSpace(raw) || raw.StartsWith("<"))
+    {
+        return raw ?? string.Empty;
+    }
+
+    if (raw.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
+        raw.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
+    {
+        try
+        {
+            var uri = new Uri(raw);
+            var userInfo = uri.UserInfo.Split(':');
+            var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : string.Empty;
+            var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+            var database = uri.AbsolutePath.TrimStart('/');
+            var port = uri.Port > 0 ? uri.Port : 5432;
+
+            var npgsqlBuilder = new Npgsql.NpgsqlConnectionStringBuilder
+            {
+                Host = uri.Host,
+                Port = port,
+                Database = database,
+                Username = username,
+                Password = password,
+                SslMode = Npgsql.SslMode.Require,
+                Pooling = true
+            };
+            return npgsqlBuilder.ConnectionString;
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    return raw;
+}
 
 // ==========================================
 // 2. DEPENDENCY INJECTION (APPLICATION SERVICES)

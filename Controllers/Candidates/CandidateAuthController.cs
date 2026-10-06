@@ -8,7 +8,9 @@ namespace Skill_Hub_BackEnd.Controllers.Candidates
 {
     [ApiController]
     [Route("api/candidate")]
+    [Route("api/candidates")]
     [Route("api/auth/candidate")]
+    [Route("api/auth/candidates")]
     [Produces("application/json")]
     public class CandidateAuthController : ControllerBase
     {
