@@ -76,7 +76,7 @@ namespace Skill_Hub_BackEnd.Services.Assessments
         {
             (new Regex(@"\bimport\s+(java\.io\.File|java\.nio\.file|java\.lang\.ProcessBuilder|java\.lang\.Runtime|java\.net\.|javax\.net\.)", RegexOpts),
                 "Importing filesystem, process, or network packages is prohibited."),
-            (new Regex(@"\b(ProcessBuilder|Runtime\.getRuntime\(\))\b", RegexOpts),
+            (new Regex(@"\bProcessBuilder\b|Runtime\.getRuntime", RegexOpts),
                 "Process execution via ProcessBuilder/Runtime is prohibited."),
             (new Regex(@"\bSystem\.exit\s*\(", RegexOpts),
                 "Process termination via 'System.exit()' is prohibited."),

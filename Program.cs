@@ -121,10 +121,21 @@ builder.Services.AddControllers();
 // 4. JWT BEARER AUTHENTICATION & AUTHORIZATION
 // ==========================================
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["SecretKey"] 
-    ?? "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
-var issuer = jwtSettings["Issuer"] ?? "SkillHubApi";
-var audience = jwtSettings["Audience"] ?? "SkillHubClients";
+var secretKey = jwtSettings["SecretKey"];
+if (string.IsNullOrWhiteSpace(secretKey) || secretKey.StartsWith("<INSERT_"))
+{
+    secretKey = "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
+}
+var issuer = jwtSettings["Issuer"];
+if (string.IsNullOrWhiteSpace(issuer) || issuer.StartsWith("<INSERT_"))
+{
+    issuer = "SkillHubApi";
+}
+var audience = jwtSettings["Audience"];
+if (string.IsNullOrWhiteSpace(audience) || audience.StartsWith("<INSERT_"))
+{
+    audience = "SkillHubClients";
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -257,7 +268,9 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        logger.LogInformation("Synchronizing database schema and tables in public schema...");
+        if (dbContext.Database.IsRelational())
+        {
+            logger.LogInformation("Synchronizing database schema and tables in public schema...");
 
         var ddlStatements = new[]
         {
@@ -724,6 +737,7 @@ using (var scope = app.Services.CreateScope())
             dbContext.SaveChanges();
             logger.LogInformation("Database Seed: Initial Super Admin user successfully created with email 'admin@skillhub.internal'.");
         }
+        }
     }
     catch (Exception ex)
     {
@@ -733,3 +747,4 @@ using (var scope = app.Services.CreateScope())
 
 app.Run();
 
+public partial class Program { }

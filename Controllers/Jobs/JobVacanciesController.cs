@@ -387,15 +387,21 @@ namespace Skill_Hub_BackEnd.Controllers.Jobs
                 .Where(result => result.JobId == jobId && candidateIds.Contains(result.CandidateId))
                 .ToDictionaryAsync(result => result.CandidateId, result => result.MatchScore);
 
-            var skillsMap = await _dbContext.CandidateSkills
+            var candidateSkills = await _dbContext.CandidateSkills
                 .Where(s => candidateIds.Contains(s.UserId))
-                .GroupBy(s => s.UserId)
-                .ToDictionaryAsync(g => g.Key, g => g.Select(s => s.SkillName).ToList());
+                .ToListAsync();
 
-            var eduMap = await _dbContext.CandidateEducations
+            var skillsMap = candidateSkills
+                .GroupBy(s => s.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(s => s.SkillName).ToList());
+
+            var candidateEducations = await _dbContext.CandidateEducations
                 .Where(e => candidateIds.Contains(e.UserId))
+                .ToListAsync();
+
+            var eduMap = candidateEducations
                 .GroupBy(e => e.UserId)
-                .ToDictionaryAsync(
+                .ToDictionary(
                     g => g.Key, 
                     g => g.OrderByDescending(e => e.EndYear).Select(e => $"{e.Degree} • {e.Institution}").FirstOrDefault()
                 );
