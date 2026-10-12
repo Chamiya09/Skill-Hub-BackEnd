@@ -92,6 +92,7 @@ namespace Skill_Hub_BackEnd.DTOs.Interviews
         public int TotalCandidates { get; set; }
         public int ScheduledCount { get; set; }
         public int UnscheduledCount { get; set; }
+        public int AlreadyScheduledCount { get; set; }
         public string OriginalDateRange { get; set; } = string.Empty;
         public string EffectiveDateRange { get; set; } = string.Empty;
         public int ForwardDaysExtended { get; set; }
@@ -100,12 +101,25 @@ namespace Skill_Hub_BackEnd.DTOs.Interviews
         public List<string> AiValidationNotes { get; set; } = new();
     }
 
+    public class AlreadyScheduledCandidateDto
+    {
+        public Guid CandidateId { get; set; }
+        public string CandidateName { get; set; } = string.Empty;
+        public string CandidateEmail { get; set; } = string.Empty;
+        public string Date { get; set; } = string.Empty; // YYYY-MM-DD
+        public string TimeSlot { get; set; } = string.Empty; // HH:mm - HH:mm
+        public string MeetingMode { get; set; } = "Online"; // "Online" | "Physical"
+        public string Location { get; set; } = string.Empty; // Meeting URL or venue
+        public string Status { get; set; } = "Scheduled";
+    }
+
     public class ScheduleProposalResponseDto
     {
         public Guid JobVacancyId { get; set; }
         public string JobTitle { get; set; } = string.Empty;
         public List<ProposedSlotDto> ProposedSlots { get; set; } = new();
         public List<UnscheduledCandidateDto> UnscheduledCandidates { get; set; } = new();
+        public List<AlreadyScheduledCandidateDto> AlreadyScheduledCandidates { get; set; } = new();
         public ScheduleSummaryDto Summary { get; set; } = new();
         public bool IsDraft { get; set; } = true;
     }

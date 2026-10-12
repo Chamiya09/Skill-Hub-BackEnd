@@ -258,9 +258,34 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                 _logger.LogWarning(ex, "Could not reach Python AI Agent at {Url}, will use resilient scheduler fallback.", url);
             }
 
-            // If the AI Agent successfully scheduled candidates, return the proposal
+            // If the AI Agent successfully scheduled candidates, ensure already-scheduled candidates are populated and return
             if (proposal != null && proposal.ProposedSlots != null && proposal.ProposedSlots.Count > 0)
             {
+                if (proposal.AlreadyScheduledCandidates == null || proposal.AlreadyScheduledCandidates.Count == 0)
+                {
+                    var alreadyEvents = await _dbContext.Events
+                        .AsNoTracking()
+                        .Where(e => e.JobVacancyId == dto.JobVacancyId && e.CandidateId.HasValue)
+                        .OrderBy(e => e.EventDate)
+                        .ToListAsync(cancellationToken);
+                    if (alreadyEvents.Count > 0)
+                    {
+                        var candIds = alreadyEvents.Select(e => e.CandidateId!.Value).Distinct().ToList();
+                        var userMap = await _dbContext.Users.AsNoTracking().Where(u => candIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
+                        proposal.AlreadyScheduledCandidates = alreadyEvents.Select(ev => new AlreadyScheduledCandidateDto
+                        {
+                            CandidateId = ev.CandidateId!.Value,
+                            CandidateName = userMap.TryGetValue(ev.CandidateId!.Value, out var u) ? u.FullName : "Candidate",
+                            CandidateEmail = userMap.TryGetValue(ev.CandidateId!.Value, out var u2) ? u2.Email : "",
+                            Date = ev.EventDate.ToString("yyyy-MM-dd"),
+                            TimeSlot = ev.EventTime,
+                            MeetingMode = string.IsNullOrWhiteSpace(ev.MeetingMode) ? "Online" : ev.MeetingMode,
+                            Location = ev.Location ?? (ev.MeetingMode == "Physical" ? "Company Office" : "Online"),
+                            Status = "Scheduled"
+                        }).ToList();
+                        proposal.Summary.AlreadyScheduledCount = proposal.AlreadyScheduledCandidates.Count;
+                    }
+                }
                 return proposal;
             }
 
@@ -321,8 +346,50 @@ namespace Skill_Hub_BackEnd.Services.Interviews
             // Group blocked slots by Date (YYYY-MM-DD)
             var blockedByDate = blockedList.GroupBy(b => b.Date).ToDictionary(g => g.Key, g => g.ToList());
 
+            // 1. Identify already scheduled candidates for this vacancy
+            var alreadyScheduledEvents = await _dbContext.Events
+                .AsNoTracking()
+                .Where(e => e.JobVacancyId == dto.JobVacancyId && e.CandidateId.HasValue)
+                .OrderBy(e => e.EventDate)
+                .ToListAsync(cancellationToken);
+
+            var alreadyScheduledList = new List<AlreadyScheduledCandidateDto>();
+            var alreadyScheduledCandidateIds = new HashSet<Guid>();
+
+            if (alreadyScheduledEvents.Count > 0)
+            {
+                var eventCandIds = alreadyScheduledEvents.Select(e => e.CandidateId!.Value).Distinct().ToList();
+                var eventUsers = await _dbContext.Users
+                    .AsNoTracking()
+                    .Where(u => eventCandIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u, cancellationToken);
+
+                foreach (var ev in alreadyScheduledEvents)
+                {
+                    var candId = ev.CandidateId!.Value;
+                    eventUsers.TryGetValue(candId, out var candUser);
+                    alreadyScheduledCandidateIds.Add(candId);
+                    alreadyScheduledList.Add(new AlreadyScheduledCandidateDto
+                    {
+                        CandidateId = candId,
+                        CandidateName = candUser?.FullName ?? "Candidate",
+                        CandidateEmail = candUser?.Email ?? "",
+                        Date = ev.EventDate.ToString("yyyy-MM-dd"),
+                        TimeSlot = ev.EventTime,
+                        MeetingMode = string.IsNullOrWhiteSpace(ev.MeetingMode) ? "Online" : ev.MeetingMode,
+                        Location = ev.Location ?? (ev.MeetingMode == "Physical" ? "Company Office" : "Online"),
+                        Status = "Scheduled"
+                    });
+                }
+            }
+
+            // Exclude already-scheduled candidates from new appointment assignment
+            var candidatesToSchedule = candidates
+                .Where(c => !alreadyScheduledCandidateIds.Contains(c.CandidateId))
+                .ToList();
+
             var proposedSlots = new List<ProposedSlotDto>();
-            var candidateQueue = new Queue<InterviewCandidateDto>(candidates);
+            var candidateQueue = new Queue<InterviewCandidateDto>(candidatesToSchedule);
             var slotIndex = 1;
 
             var currentDate = dto.StartDate;
@@ -417,6 +484,7 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                 TotalCandidates = candidates.Count,
                 ScheduledCount = proposedSlots.Count,
                 UnscheduledCount = unscheduled.Count,
+                AlreadyScheduledCount = alreadyScheduledList.Count,
                 OriginalDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
                 EffectiveDateRange = $"{dto.StartDate:yyyy-MM-dd} to {effectiveEndDate:yyyy-MM-dd}",
                 ForwardDaysExtended = forwardDays,
@@ -438,12 +506,19 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                 }
             };
 
+            if (alreadyScheduledList.Count > 0)
+            {
+                summary.AssumptionsMade.Add($"Preserved {alreadyScheduledList.Count} already-scheduled candidate appointment(s) in company calendar.");
+                summary.AiValidationNotes.Add($"Excluded {alreadyScheduledList.Count} already-scheduled candidate(s) from new slot assignment to protect existing bookings.");
+            }
+
             return new ScheduleProposalResponseDto
             {
                 JobVacancyId = dto.JobVacancyId,
                 JobTitle = jobTitle,
                 ProposedSlots = proposedSlots,
                 UnscheduledCandidates = unscheduled,
+                AlreadyScheduledCandidates = alreadyScheduledList,
                 Summary = summary,
                 IsDraft = true
             };
