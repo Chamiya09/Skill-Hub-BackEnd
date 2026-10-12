@@ -17,10 +17,21 @@ namespace Skill_Hub_BackEnd.Services.Candidates
         public (string token, DateTime expiresAt) GenerateToken(Company company)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] 
-                ?? "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
-            var issuer = jwtSettings["Issuer"] ?? "SkillHubApi";
-            var audience = jwtSettings["Audience"] ?? "SkillHubClients";
+            var secretKey = jwtSettings["SecretKey"];
+            if (string.IsNullOrWhiteSpace(secretKey) || secretKey.StartsWith("<INSERT_"))
+            {
+                secretKey = "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
+            }
+            var issuer = jwtSettings["Issuer"];
+            if (string.IsNullOrWhiteSpace(issuer) || issuer.StartsWith("<INSERT_"))
+            {
+                issuer = "SkillHubApi";
+            }
+            var audience = jwtSettings["Audience"];
+            if (string.IsNullOrWhiteSpace(audience) || audience.StartsWith("<INSERT_"))
+            {
+                audience = "SkillHubClients";
+            }
             var expirationHours = int.TryParse(jwtSettings["ExpirationInHours"], out var hours) ? hours : 24;
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
@@ -62,10 +73,21 @@ namespace Skill_Hub_BackEnd.Services.Candidates
         public (string token, DateTime expiresAt) GenerateToken(User user, string? companyName)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] 
-                ?? "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
-            var issuer = jwtSettings["Issuer"] ?? "SkillHubApi";
-            var audience = jwtSettings["Audience"] ?? "SkillHubClients";
+            var secretKey = jwtSettings["SecretKey"];
+            if (string.IsNullOrWhiteSpace(secretKey) || secretKey.StartsWith("<INSERT_"))
+            {
+                secretKey = "SkillHub_Super_Secret_Production_Security_Key_2026_ATS_AI_Matching_Engine_Secure!";
+            }
+            var issuer = jwtSettings["Issuer"];
+            if (string.IsNullOrWhiteSpace(issuer) || issuer.StartsWith("<INSERT_"))
+            {
+                issuer = "SkillHubApi";
+            }
+            var audience = jwtSettings["Audience"];
+            if (string.IsNullOrWhiteSpace(audience) || audience.StartsWith("<INSERT_"))
+            {
+                audience = "SkillHubClients";
+            }
             var expirationHours = int.TryParse(jwtSettings["ExpirationInHours"], out var hours) ? hours : 24;
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
