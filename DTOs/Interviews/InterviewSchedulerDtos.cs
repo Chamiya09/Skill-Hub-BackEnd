@@ -63,6 +63,11 @@ namespace Skill_Hub_BackEnd.DTOs.Interviews
         public string? WorkingHoursEnd { get; set; } = "17:00";
 
         public int BufferMinutes { get; set; } = 10;
+
+        /// <summary>
+        /// Optional list of filtered candidate IDs to be scheduled. If omitted, all eligible un-scheduled candidates are scheduled.
+        /// </summary>
+        public List<Guid>? CandidateIds { get; set; }
     }
 
     public class ProposedSlotDto

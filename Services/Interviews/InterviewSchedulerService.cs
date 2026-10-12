@@ -48,10 +48,26 @@ namespace Skill_Hub_BackEnd.Services.Interviews
 
             var candidates = new List<InterviewCandidateDto>();
 
-            // 1. Check Submissions where IsSelectedForInterview == true
+            // 1. Identify all candidates who already have a confirmed interview appointment in Events
+            var scheduledCandidateIds = await _dbContext.Events
+                .AsNoTracking()
+                .Where(e => (e.JobVacancyId == jobVacancyId || e.JobVacancyId == null) && e.CandidateId.HasValue)
+                .Select(e => e.CandidateId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            // 2. Query Submissions: Strictly filter out any candidates who already have a status of 'Selected' or 'Scheduled'
+            // (or 'Ready for Interview', 'Hired', or already exist in Events).
+            // Only return candidates who are 'Pending' or need a new schedule.
             var interviewSubmissions = await _dbContext.Submissions
                 .AsNoTracking()
-                .Where(s => s.JobVacancyId == jobVacancyId && s.IsSelectedForInterview)
+                .Where(s => s.JobVacancyId == jobVacancyId &&
+                            !scheduledCandidateIds.Contains(s.CandidateId) &&
+                            s.Status != "Scheduled" &&
+                            s.Status != "Selected" &&
+                            s.Status != "Ready for Interview" &&
+                            s.Status != "Hired" &&
+                            (s.Status == "Pending" || (s.IsSelectedForInterview && s.Status != "Rejected") || s.Status == "Passed" || s.Status == "Graded"))
                 .ToListAsync(cancellationToken);
 
             if (interviewSubmissions.Count > 0)
@@ -76,14 +92,22 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                 }
             }
 
-            // 2. If no submissions exist yet or are flagged, check shortlisted/interview job applications
+            // 3. If no submissions exist yet, fallback to JobApplications.
+            // Strictly exclude candidates with status 'Selected', 'Scheduled', 'Interview', 'Hired', 'Rejected'.
+            // Only return candidates who are 'Pending' or need a new schedule.
             if (candidates.Count == 0)
             {
                 var applications = await _dbContext.JobApplications
                     .AsNoTracking()
                     .Include(a => a.Candidate)
                     .Where(a => a.JobId == jobVacancyId &&
-                                (a.Status == "Shortlisted" || a.Status == "Interview" || a.Status == "Reviewed"))
+                                !scheduledCandidateIds.Contains(a.CandidateId) &&
+                                a.Status != "Selected" &&
+                                a.Status != "Scheduled" &&
+                                a.Status != "Interview" &&
+                                a.Status != "Hired" &&
+                                a.Status != "Rejected" &&
+                                (a.Status == "Pending" || a.Status == "Shortlisted" || a.Status == "Reviewed" || a.Status == "Applied"))
                     .ToListAsync(cancellationToken);
 
                 // If still empty, fall back to any active applicants for this vacancy
@@ -235,7 +259,8 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                 parallel_tracks = dto.ParallelTracks > 0 ? dto.ParallelTracks : 2,
                 working_hours_start = string.IsNullOrWhiteSpace(dto.WorkingHoursStart) ? "09:00" : dto.WorkingHoursStart,
                 working_hours_end = string.IsNullOrWhiteSpace(dto.WorkingHoursEnd) ? "17:00" : dto.WorkingHoursEnd,
-                buffer_minutes = dto.BufferMinutes >= 0 ? dto.BufferMinutes : 10
+                buffer_minutes = dto.BufferMinutes >= 0 ? dto.BufferMinutes : 10,
+                candidate_ids = dto.CandidateIds?.Select(id => id.ToString()).ToList()
             };
 
             _logger.LogInformation("Calling Python AI Interview Scheduler at: {Url} for Job ID: {JobId}", url, dto.JobVacancyId);
@@ -302,6 +327,13 @@ namespace Skill_Hub_BackEnd.Services.Interviews
         {
             var candResponse = await GetCandidatesForInterviewAsync(dto.JobVacancyId, cancellationToken);
             var candidates = candResponse.Candidates ?? new List<InterviewCandidateDto>();
+
+            // If specific filtered candidate IDs were provided by frontend, apply filter
+            if (dto.CandidateIds != null && dto.CandidateIds.Count > 0)
+            {
+                candidates = candidates.Where(c => dto.CandidateIds.Contains(c.CandidateId)).ToList();
+            }
+
             var jobTitle = !string.IsNullOrWhiteSpace(candResponse.JobTitle) ? candResponse.JobTitle : "Interview Schedule";
 
             if (candidates.Count == 0)
@@ -319,8 +351,8 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                         UnscheduledCount = 0,
                         OriginalDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
                         EffectiveDateRange = $"{dto.StartDate:yyyy-MM-dd} to {dto.EndDate:yyyy-MM-dd}",
-                        AssumptionsMade = new List<string> { "No candidates are shortlisted, reviewed, or selected for interview for this vacancy." },
-                        AiValidationNotes = new List<string> { "Zero candidates available to schedule." }
+                        AssumptionsMade = new List<string> { "All candidates have been scheduled. There are no new candidates to process at this time." },
+                        AiValidationNotes = new List<string> { "Zero pending candidates require new interview slots." }
                     },
                     IsDraft = true
                 };
