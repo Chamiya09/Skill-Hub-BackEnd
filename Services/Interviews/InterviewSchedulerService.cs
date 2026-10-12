@@ -110,16 +110,6 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                                 (a.Status == "Pending" || a.Status == "Shortlisted" || a.Status == "Reviewed" || a.Status == "Applied"))
                     .ToListAsync(cancellationToken);
 
-                // If still empty, fall back to any active applicants for this vacancy
-                if (applications.Count == 0)
-                {
-                    applications = await _dbContext.JobApplications
-                        .AsNoTracking()
-                        .Include(a => a.Candidate)
-                        .Where(a => a.JobId == jobVacancyId && a.Status != "Rejected")
-                        .ToListAsync(cancellationToken);
-                }
-
                 foreach (var app in applications)
                 {
                     if (app.Candidate != null)
@@ -329,7 +319,7 @@ namespace Skill_Hub_BackEnd.Services.Interviews
             var candidates = candResponse.Candidates ?? new List<InterviewCandidateDto>();
 
             // If specific filtered candidate IDs were provided by frontend, apply filter
-            if (dto.CandidateIds != null && dto.CandidateIds.Count > 0)
+            if (dto.CandidateIds != null)
             {
                 candidates = candidates.Where(c => dto.CandidateIds.Contains(c.CandidateId)).ToList();
             }

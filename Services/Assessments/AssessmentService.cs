@@ -966,7 +966,7 @@ namespace Skill_Hub_BackEnd.Services.Assessments
                         dto.ScheduledLocation = matchingEvent.Location;
                     }
                 }
-                else if (matchingEvent != null && string.Equals(s.Status, "Ready for Interview", StringComparison.OrdinalIgnoreCase))
+                else if (matchingEvent != null)
                 {
                     dto.ScheduledEventId = matchingEvent.Id;
                     dto.ScheduledDate = matchingEvent.EventDate.ToString("yyyy-MM-dd");
