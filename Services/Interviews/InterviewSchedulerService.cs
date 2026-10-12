@@ -48,26 +48,25 @@ namespace Skill_Hub_BackEnd.Services.Interviews
 
             var candidates = new List<InterviewCandidateDto>();
 
-            // 1. Identify all candidates who already have a confirmed interview appointment in Events
+            // 1. Identify candidates who already have a confirmed interview appointment in Events for this vacancy
             var scheduledCandidateIds = await _dbContext.Events
                 .AsNoTracking()
-                .Where(e => (e.JobVacancyId == jobVacancyId || e.JobVacancyId == null) && e.CandidateId.HasValue)
+                .Where(e => e.JobVacancyId == jobVacancyId && e.CandidateId.HasValue)
                 .Select(e => e.CandidateId!.Value)
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            // 2. Query Submissions: Strictly filter out any candidates who already have a status of 'Selected' or 'Scheduled'
-            // (or 'Ready for Interview', 'Hired', or already exist in Events).
-            // Only return candidates who are 'Pending' or need a new schedule.
+            // 2. Query Submissions: Include candidates who are selected for interview (IsSelectedForInterview, "Selected", "Pending")
+            // Strictly exclude candidates who already have a confirmed appointment, or status 'Ready for Interview', 'Scheduled', 'Hired', 'Rejected'.
             var interviewSubmissions = await _dbContext.Submissions
                 .AsNoTracking()
                 .Where(s => s.JobVacancyId == jobVacancyId &&
                             !scheduledCandidateIds.Contains(s.CandidateId) &&
                             s.Status != "Scheduled" &&
-                            s.Status != "Selected" &&
                             s.Status != "Ready for Interview" &&
                             s.Status != "Hired" &&
-                            (s.Status == "Pending" || (s.IsSelectedForInterview && s.Status != "Rejected") || s.Status == "Passed" || s.Status == "Graded"))
+                            s.Status != "Rejected" &&
+                            (s.IsSelectedForInterview || s.Status == "Selected" || s.Status == "Pending" || s.Status == "Passed" || s.Status == "Graded"))
                 .ToListAsync(cancellationToken);
 
             if (interviewSubmissions.Count > 0)
@@ -93,8 +92,7 @@ namespace Skill_Hub_BackEnd.Services.Interviews
             }
 
             // 3. If no submissions exist yet, fallback to JobApplications.
-            // Strictly exclude candidates with status 'Selected', 'Scheduled', 'Interview', 'Hired', 'Rejected'.
-            // Only return candidates who are 'Pending' or need a new schedule.
+            // Exclude candidates who already have an appointment or are 'Scheduled', 'Interview', 'Hired', 'Rejected'.
             if (candidates.Count == 0)
             {
                 var applications = await _dbContext.JobApplications
@@ -102,12 +100,11 @@ namespace Skill_Hub_BackEnd.Services.Interviews
                     .Include(a => a.Candidate)
                     .Where(a => a.JobId == jobVacancyId &&
                                 !scheduledCandidateIds.Contains(a.CandidateId) &&
-                                a.Status != "Selected" &&
                                 a.Status != "Scheduled" &&
                                 a.Status != "Interview" &&
                                 a.Status != "Hired" &&
                                 a.Status != "Rejected" &&
-                                (a.Status == "Pending" || a.Status == "Shortlisted" || a.Status == "Reviewed" || a.Status == "Applied"))
+                                (a.Status == "Selected" || a.Status == "Pending" || a.Status == "Shortlisted" || a.Status == "Reviewed" || a.Status == "Applied"))
                     .ToListAsync(cancellationToken);
 
                 foreach (var app in applications)
